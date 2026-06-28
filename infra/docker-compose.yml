@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ../apps/backend
+      dockerfile: Dockerfile
+    env_file:
+      - ../apps/backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../apps/backend:/app
+
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../apps/web:/app
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2.8
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - web
+      - backend

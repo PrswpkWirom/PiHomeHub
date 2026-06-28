@@ -1,0 +1,1 @@
+"""PiHomeHub backend package."""
