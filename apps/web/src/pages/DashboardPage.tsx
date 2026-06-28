@@ -60,8 +60,15 @@ export function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusPill status={device.status} />
-                  {device.supports_wol && device.id ? (
-                    <button className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink" onClick={() => void wake(device.id)}>
+                  {device.supports_wol && device.id !== null ? (
+                    <button
+                      className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink"
+                      onClick={() => {
+                        if (device.id !== null) {
+                          void wake(device.id);
+                        }
+                      }}
+                    >
                       Wake
                     </button>
                   ) : null}

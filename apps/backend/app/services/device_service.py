@@ -7,7 +7,7 @@ import subprocess
 from sqlalchemy.orm import Session
 
 from app.models.device import Device
-from app.schemas.devices import DeviceSummary
+from app.schemas.devices import DeviceCreate, DeviceSummary, DeviceUpdate
 
 
 def _ping_host(host: str | None) -> str:
@@ -52,3 +52,30 @@ def get_devices(db: Session) -> list[DeviceSummary]:
             )
         )
     return items
+
+
+def create_device(db: Session, payload: DeviceCreate) -> Device:
+    device = Device(**payload.model_dump())
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+def update_device(db: Session, device_id: int, payload: DeviceUpdate) -> Device | None:
+    device = db.query(Device).filter(Device.id == device_id).one_or_none()
+    if device is None:
+        return None
+
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(device, key, value)
+
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+def delete_device(db: Session, device_id: int) -> bool:
+    count = db.query(Device).filter(Device.id == device_id).delete()
+    db.commit()
+    return count > 0

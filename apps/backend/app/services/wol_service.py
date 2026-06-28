@@ -8,14 +8,14 @@ from sqlalchemy.orm import Session
 from app.models.device import Device
 
 
-def _send_magic_packet(mac_address: str) -> None:
+def _send_magic_packet(mac_address: str, broadcast_address: str = "255.255.255.255") -> None:
     clean_mac = mac_address.replace(":", "").replace("-", "")
     if len(clean_mac) != 12:
         raise ValueError("Invalid MAC address")
     packet = bytes.fromhex("FF" * 6 + clean_mac * 16)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.sendto(packet, ("255.255.255.255", 9))
+        sock.sendto(packet, (broadcast_address, 9))
 
 
 def wake_device(db: Session, device_id: int) -> None:

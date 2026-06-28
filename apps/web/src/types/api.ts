@@ -27,6 +27,59 @@ export type DeviceSummary = {
   description: string | null;
 };
 
+export type DeviceWrite = {
+  name: string;
+  device_type: string;
+  ip_address?: string | null;
+  tailscale_name?: string | null;
+  mac_address?: string | null;
+  supports_wol: boolean;
+  description?: string | null;
+};
+
+export type TailscaleStatus = {
+  token_saved: boolean;
+  tailnet: string | null;
+  connected: boolean;
+  last_sync_at: string | null;
+  last_sync_error: string | null;
+};
+
+export type TailscaleConnectionResult = {
+  ok: boolean;
+  message: string;
+};
+
+export type TailscaleDevice = {
+  id: number;
+  tailscale_id: string;
+  node_id: string | null;
+  machine_name: string;
+  hostname: string | null;
+  tailscale_ips: string[];
+  os: string | null;
+  online: boolean;
+  last_seen: string | null;
+  tags: string[];
+  sync_status: string;
+  last_synced_at: string | null;
+  supports_wol: boolean;
+  mac_address: string | null;
+  lan_ip_address: string | null;
+  broadcast_address: string | null;
+  alias: string | null;
+  note: string | null;
+};
+
+export type TailscaleWolWrite = {
+  supports_wol: boolean;
+  mac_address?: string | null;
+  lan_ip_address?: string | null;
+  broadcast_address?: string | null;
+  alias?: string | null;
+  note?: string | null;
+};
+
 export type ServiceStatus = {
   name: string;
   slug: string;

@@ -48,6 +48,7 @@ def app(tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> Ge
 
     app = FastAPI()
     app.include_router(router)
+    app.state.testing_session_local = TestingSessionLocal
     app.dependency_overrides[get_db] = override_get_db
 
     yield app
