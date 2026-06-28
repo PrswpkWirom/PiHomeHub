@@ -16,7 +16,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 export function DashboardPage() {
-  const metrics = useFetch<PiStatus>("/api/system/pi");
+  const metrics = useFetch<PiStatus>("/api/system/pi", { staleTimeMs: 4_000, refetchIntervalMs: 5_000 });
   const devices = useFetch<DeviceSummary[]>("/api/devices");
   const services = useFetch<ServiceStatus[]>("/api/services/status");
   const links = useFetch<ServiceLink[]>("/api/services/links");
@@ -34,7 +34,14 @@ export function DashboardPage() {
 
   return (
     <div className="grid gap-6">
-      <Panel title="System Overview">
+      <Panel
+        title="System Overview"
+        action={
+          <span className="text-sm text-slate-500">
+            {metrics.refreshing ? "Refreshing..." : metrics.updatedAt ? `Updated ${new Date(metrics.updatedAt).toLocaleTimeString()}` : null}
+          </span>
+        }
+      >
         {metrics.loading ? (
           <p>Loading system metrics…</p>
         ) : metrics.error || !metrics.data ? (

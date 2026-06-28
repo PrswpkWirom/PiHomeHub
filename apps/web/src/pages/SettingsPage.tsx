@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { Panel } from "../components/Panel";
+import { invalidateCache, setCachedData } from "../hooks/useFetch";
 import type { TailscaleConnectionResult, TailscaleDevice, TailscaleStatus } from "../types/api";
 
 export function SettingsPage() {
@@ -31,6 +32,8 @@ export function SettingsPage() {
         tailnet
       });
       setStatus(nextStatus);
+      invalidateCache("/api/tailscale/devices");
+      invalidateCache("/api/tailscale/status");
       setApiToken("");
       setMessage("Tailscale settings saved.");
     } catch (error) {
@@ -58,6 +61,8 @@ export function SettingsPage() {
     setMessage(null);
     try {
       const devices = await api.post<TailscaleDevice[]>("/api/tailscale/sync");
+      setCachedData<TailscaleDevice[]>("/api/tailscale/devices", devices);
+      invalidateCache("/api/tailscale/status");
       await loadStatus();
       setMessage(`Synced ${devices.length} Tailscale devices.`);
     } catch (error) {

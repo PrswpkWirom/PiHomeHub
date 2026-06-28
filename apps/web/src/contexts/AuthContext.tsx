@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 import { api } from "../api/client";
+import { clearApiCache } from "../hooks/useFetch";
 import type { AuthUser } from "../types/api";
 
 type AuthContextValue = {
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await api.post("/api/auth/logout");
+    clearApiCache();
     setUser(null);
   };
 

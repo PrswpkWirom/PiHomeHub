@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
 import { Panel } from "../components/Panel";
@@ -18,6 +18,10 @@ const emptyManualDevice: DeviceWrite = {
 
 const TAILSCALE_REFRESH_MS = 60_000;
 
+let lastTailscaleSyncCompletedAt: number | null = null;
+let lastTailscaleSyncLabel: string | null = null;
+let tailscaleSyncPromise: Promise<TailscaleDevice[]> | null = null;
+
 function cleanDevice(payload: DeviceWrite): DeviceWrite {
   return {
     ...payload,
@@ -32,6 +36,19 @@ function canWake(device: TailscaleDevice) {
   return device.supports_wol && Boolean(device.mac_address);
 }
 
+function hasRecentTailscaleSync(devices: TailscaleDevice[]) {
+  if (lastTailscaleSyncCompletedAt && Date.now() - lastTailscaleSyncCompletedAt < TAILSCALE_REFRESH_MS) {
+    return true;
+  }
+  return devices.some((device) => {
+    if (!device.last_synced_at) {
+      return false;
+    }
+    const syncedAt = Date.parse(device.last_synced_at);
+    return Number.isFinite(syncedAt) && Date.now() - syncedAt < TAILSCALE_REFRESH_MS;
+  });
+}
+
 export function DevicesPage() {
   const manual = useFetch<DeviceSummary[]>("/api/devices");
   const tailscale = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
@@ -41,17 +58,28 @@ export function DevicesPage() {
   const [wolForm, setWolForm] = useState<TailscaleWolWrite>({ supports_wol: false });
   const [message, setMessage] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
+  const setTailscaleData = tailscale.setData;
 
-  const syncTailscale = async ({ silent = false }: { silent?: boolean } = {}) => {
+  const syncTailscale = useCallback(async ({ silent = false, force = false }: { silent?: boolean; force?: boolean } = {}) => {
+    if (silent && tailscaleSyncPromise) {
+      return;
+    }
+    if (!force && lastTailscaleSyncCompletedAt && Date.now() - lastTailscaleSyncCompletedAt < TAILSCALE_REFRESH_MS) {
+      return;
+    }
     if (!silent) {
       setMessage(null);
     }
     setSyncing(true);
     try {
-      const synced = await api.post<TailscaleDevice[]>("/api/tailscale/sync");
-      tailscale.setData(synced);
+      const request = tailscaleSyncPromise ?? api.post<TailscaleDevice[]>("/api/tailscale/sync");
+      tailscaleSyncPromise = request;
+      const synced = await request;
+      setTailscaleData(synced);
       const timestamp = new Date().toLocaleTimeString();
+      lastTailscaleSyncCompletedAt = Date.now();
+      lastTailscaleSyncLabel = timestamp;
       setLastSyncAt(timestamp);
       if (!silent) {
         setMessage(`Synced ${synced.length} Tailscale devices at ${timestamp}.`);
@@ -61,28 +89,26 @@ export function DevicesPage() {
         setMessage(error instanceof Error ? error.message : "Tailscale sync failed.");
       }
     } finally {
+      tailscaleSyncPromise = null;
       setSyncing(false);
     }
-  };
+  }, [setTailscaleData]);
 
   useEffect(() => {
-    void syncTailscale({ silent: true });
-    const interval = window.setInterval(() => {
+    if (!tailscale.loading && tailscale.data !== null && !hasRecentTailscaleSync(tailscale.data)) {
       void syncTailscale({ silent: true });
-    }, TAILSCALE_REFRESH_MS);
-
-    return () => window.clearInterval(interval);
-  }, []);
+    }
+  }, [syncTailscale, tailscale.data, tailscale.loading]);
 
   const saveManual = async (event: FormEvent) => {
     event.preventDefault();
     const payload = cleanDevice(manualForm);
     if (editingManualId) {
       const updated = await api.patch<DeviceSummary>(`/api/devices/${editingManualId}`, payload);
-      manual.setData((manual.data ?? []).map((device) => (device.id === editingManualId ? updated : device)));
+      manual.setData((current) => (current ?? []).map((device) => (device.id === editingManualId ? updated : device)));
     } else {
       const created = await api.post<DeviceSummary>("/api/devices", payload);
-      manual.setData([...(manual.data ?? []), created]);
+      manual.setData((current) => [...(current ?? []), created]);
     }
     setManualForm(emptyManualDevice);
     setEditingManualId(null);
@@ -106,7 +132,7 @@ export function DevicesPage() {
 
   const deleteManual = async (deviceId: number) => {
     await api.delete(`/api/devices/${deviceId}`);
-    manual.setData((manual.data ?? []).filter((device) => device.id !== deviceId));
+    manual.setData((current) => (current ?? []).filter((device) => device.id !== deviceId));
   };
 
   const configureWol = (device: TailscaleDevice) => {
@@ -134,7 +160,7 @@ export function DevicesPage() {
       alias: wolForm.alias || null,
       note: wolForm.note || null
     });
-    tailscale.setData((tailscale.data ?? []).map((device) => (device.id === editingTailscaleId ? updated : device)));
+    tailscale.setData((current) => (current ?? []).map((device) => (device.id === editingTailscaleId ? updated : device)));
     setEditingTailscaleId(null);
     setWolForm({ supports_wol: false });
   };
@@ -154,11 +180,11 @@ export function DevicesPage() {
         title="Tailscale Devices"
         action={
           <div className="flex flex-wrap items-center justify-end gap-3 text-sm text-slate-500">
-            <span>{lastSyncAt ? `Last sync ${lastSyncAt}` : "Auto-sync every 60s"}</span>
+            <span>{lastSyncAt ? `Last sync ${lastSyncAt}` : "Background sync after load"}</span>
             <button
               className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink disabled:opacity-40"
               disabled={syncing}
-              onClick={() => void syncTailscale()}
+              onClick={() => void syncTailscale({ force: true })}
             >
               {syncing ? "Syncing..." : "Sync now"}
             </button>
