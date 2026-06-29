@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="${PIHOMEHUB_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${PIHOMEHUB_FRONTEND_PORT:-5173}"
-HOST="${PIHOMEHUB_DEV_HOST:-127.0.0.1}"
+HOST="${PIHOMEHUB_DEV_HOST:-0.0.0.0}"
 
 cd "$ROOT_DIR"
 
@@ -30,7 +30,10 @@ host = sys.argv[1]
 port = int(sys.argv[2])
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-    sys.exit(0 if sock.connect_ex((host, port)) != 0 else 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sys.exit(1)
 PY
   then
     return
@@ -40,6 +43,25 @@ PY
   echo "Stop the process using it, or run with a different port:"
   echo "  PIHOMEHUB_${label^^}_PORT=$((port + 1)) ./scripts/run-dev.sh"
   exit 1
+}
+
+print_frontend_urls() {
+  if [[ "$HOST" != "0.0.0.0" ]]; then
+    echo "Frontend: http://${HOST}:${FRONTEND_PORT}"
+    return
+  fi
+
+  echo "Frontend URLs:"
+  echo "  Local:   http://localhost:${FRONTEND_PORT}"
+
+  local address
+  for address in $(hostname -I 2>/dev/null || true); do
+    if [[ "$address" == *:* ]]; then
+      echo "  Network: http://[${address}]:${FRONTEND_PORT}"
+    else
+      echo "  Network: http://${address}:${FRONTEND_PORT}"
+    fi
+  done
 }
 
 require_free_port "$BACKEND_PORT" "backend"
@@ -74,7 +96,7 @@ FRONTEND_PID=$!
 echo
 echo "PiHomeHub is starting."
 echo "Backend:  http://${HOST}:${BACKEND_PORT}"
-echo "Frontend: http://${HOST}:${FRONTEND_PORT}"
+print_frontend_urls
 echo "Press Ctrl-C to stop both servers."
 echo
 
