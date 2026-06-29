@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -10,6 +12,17 @@ from app.models.task import Task
 from app.models.user import AppSetting, SessionToken, User
 
 settings = get_settings()
+DELETED_KNOWN_DEVICES_KEY = "deleted_known_device_names"
+
+
+def _deleted_known_device_names(db: Session) -> set[str]:
+    setting = db.query(AppSetting).filter(AppSetting.key == DELETED_KNOWN_DEVICES_KEY).one_or_none()
+    if setting is None:
+        return set()
+    try:
+        return set(json.loads(setting.value))
+    except json.JSONDecodeError:
+        return set()
 
 
 def bootstrap_database() -> None:
@@ -46,9 +59,10 @@ def seed_defaults(db: Session) -> None:
             )
 
     existing_devices = {row.name for row in db.query(Device).all()}
+    deleted_known_devices = _deleted_known_device_names(db)
     for item in settings.known_devices_seed:
         name = item.get("name")
-        if name and name not in existing_devices:
+        if name and name not in existing_devices and name not in deleted_known_devices:
             db.add(
                 Device(
                     name=name,

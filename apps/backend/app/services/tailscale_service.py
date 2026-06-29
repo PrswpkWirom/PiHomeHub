@@ -14,6 +14,7 @@ from app.models.tailscale_device import TailscaleDevice
 from app.models.user import AppSetting
 from app.schemas.tailscale import (
     TailscaleConnectionResult,
+    TailscaleDeviceSettingsUpdate,
     TailscaleDeviceRead,
     TailscaleSettingsWrite,
     TailscaleStatus,
@@ -155,7 +156,8 @@ def _to_read(device: TailscaleDevice) -> TailscaleDeviceRead:
         id=device.id,
         tailscale_id=device.tailscale_id,
         node_id=device.node_id,
-        machine_name=device.alias or device.machine_name,
+        machine_name=device.machine_name,
+        display_name=device.alias or device.machine_name,
         hostname=device.hostname,
         tailscale_ips=json.loads(device.tailscale_ips or "[]"),
         os=device.os,
@@ -240,6 +242,28 @@ def update_tailscale_wol(db: Session, device_id: int, payload: TailscaleWolUpdat
 
     for key, value in payload.model_dump().items():
         setattr(device, key, value)
+
+    db.commit()
+    db.refresh(device)
+    return _to_read(device)
+
+
+def update_tailscale_device_settings(
+    db: Session, device_id: int, payload: TailscaleDeviceSettingsUpdate
+) -> TailscaleDeviceRead:
+    device = db.query(TailscaleDevice).filter(TailscaleDevice.id == device_id).one_or_none()
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tailscale device not found")
+    if payload.supports_wol and not payload.mac_address:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MAC address is required for WOL")
+
+    display_name = payload.display_name.strip() if payload.display_name else None
+    device.alias = display_name or None
+    device.supports_wol = payload.supports_wol
+    device.mac_address = payload.mac_address
+    device.lan_ip_address = payload.lan_ip_address
+    device.broadcast_address = payload.broadcast_address
+    device.note = payload.note
 
     db.commit()
     db.refresh(device)

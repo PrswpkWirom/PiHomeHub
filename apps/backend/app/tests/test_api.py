@@ -62,6 +62,71 @@ async def test_task_crud(app):
 
 
 @pytest.mark.anyio
+async def test_deleted_seeded_manual_device_does_not_reappear(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        listing = await client.get("/api/devices")
+        seeded = next(device for device in listing.json() if device["name"] == "Gaming Desktop")
+        deleted = await client.delete(f"/api/devices/{seeded['id']}")
+        assert deleted.status_code == 204
+
+    from app.database.bootstrap import seed_defaults
+
+    db = app.state.testing_session_local()
+    try:
+        seed_defaults(db)
+    finally:
+        db.close()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+        listing = await client.get("/api/devices")
+        assert all(device["name"] != "Gaming Desktop" for device in listing.json())
+
+
+@pytest.mark.anyio
+async def test_renamed_seeded_manual_device_does_not_duplicate_original_seed(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        listing = await client.get("/api/devices")
+        seeded = next(device for device in listing.json() if device["name"] == "Gaming Desktop")
+        renamed = await client.patch(
+            f"/api/devices/{seeded['id']}",
+            json={
+                "name": "Main Workstation",
+                "device_type": seeded["device_type"],
+                "ip_address": seeded["ip_address"],
+                "tailscale_name": seeded["tailscale_name"],
+                "mac_address": seeded["mac_address"],
+                "supports_wol": seeded["supports_wol"],
+                "description": seeded["description"],
+            },
+        )
+        assert renamed.status_code == 200
+
+    from app.database.bootstrap import seed_defaults
+
+    db = app.state.testing_session_local()
+    try:
+        seed_defaults(db)
+    finally:
+        db.close()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+        listing = await client.get("/api/devices")
+        names = [device["name"] for device in listing.json()]
+        assert "Main Workstation" in names
+        assert "Gaming Desktop" not in names
+
+
+@pytest.mark.anyio
 async def test_service_status_missing_container(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
@@ -298,9 +363,69 @@ async def test_tailscale_wol_validation_and_wake(app):
             },
         )
         assert configured.status_code == 200
-        assert configured.json()["machine_name"] == "Gaming Desktop"
+        assert configured.json()["machine_name"] == "desktop"
+        assert configured.json()["display_name"] == "Gaming Desktop"
 
         with patch("app.services.tailscale_service._send_magic_packet") as sender:
             wake = await client.post("/api/tailscale/devices/1/wake")
             assert wake.status_code == 200
             sender.assert_called_once_with("AA:BB:CC:DD:EE:FF", "192.168.1.255")
+
+
+@pytest.mark.anyio
+async def test_tailscale_device_settings_display_name_and_wol(app):
+    db = app.state.testing_session_local()
+    try:
+        db.add(TailscaleDevice(tailscale_id="device-settings", machine_name="desktop.tailnet.ts.net", tailscale_ips="[]", tags="[]"))
+        db.commit()
+    finally:
+        db.close()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        listing = await client.get("/api/tailscale/devices")
+        assert listing.status_code == 200
+        device = next(item for item in listing.json() if item["tailscale_id"] == "device-settings")
+        assert device["machine_name"] == "desktop.tailnet.ts.net"
+        assert device["display_name"] == "desktop.tailnet.ts.net"
+
+        invalid = await client.patch(
+            f"/api/tailscale/devices/{device['id']}/settings",
+            json={"display_name": "Gaming Desktop", "supports_wol": True},
+        )
+        assert invalid.status_code == 422
+
+        configured = await client.patch(
+            f"/api/tailscale/devices/{device['id']}/settings",
+            json={
+                "display_name": "Gaming Desktop",
+                "supports_wol": True,
+                "mac_address": "AA:BB:CC:DD:EE:FF",
+                "lan_ip_address": "192.168.1.50",
+                "broadcast_address": "192.168.1.255",
+                "note": "Wake over LAN",
+            },
+        )
+        assert configured.status_code == 200
+        assert configured.json()["machine_name"] == "desktop.tailnet.ts.net"
+        assert configured.json()["display_name"] == "Gaming Desktop"
+        assert configured.json()["alias"] == "Gaming Desktop"
+        assert configured.json()["supports_wol"] is True
+
+        cleared = await client.patch(
+            f"/api/tailscale/devices/{device['id']}/settings",
+            json={
+                "display_name": "",
+                "supports_wol": False,
+                "mac_address": None,
+                "lan_ip_address": None,
+                "broadcast_address": None,
+                "note": None,
+            },
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["machine_name"] == "desktop.tailnet.ts.net"
+        assert cleared.json()["display_name"] == "desktop.tailnet.ts.net"
+        assert cleared.json()["alias"] is None

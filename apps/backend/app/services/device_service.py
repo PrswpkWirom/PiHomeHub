@@ -1,13 +1,45 @@
 from __future__ import annotations
 
+import json
 import platform
 import socket
 import subprocess
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.device import Device
+from app.models.user import AppSetting
 from app.schemas.devices import DeviceCreate, DeviceSummary, DeviceUpdate
+
+DELETED_KNOWN_DEVICES_KEY = "deleted_known_device_names"
+
+
+def _known_device_names() -> set[str]:
+    return {item["name"] for item in get_settings().known_devices_seed if item.get("name")}
+
+
+def _deleted_known_device_names(db: Session) -> set[str]:
+    setting = db.query(AppSetting).filter(AppSetting.key == DELETED_KNOWN_DEVICES_KEY).one_or_none()
+    if setting is None:
+        return set()
+    try:
+        return set(json.loads(setting.value))
+    except json.JSONDecodeError:
+        return set()
+
+
+def _remember_deleted_known_device(db: Session, name: str | None) -> None:
+    if not name or name not in _known_device_names():
+        return
+    deleted_names = _deleted_known_device_names(db)
+    deleted_names.add(name)
+    value = json.dumps(sorted(deleted_names))
+    setting = db.query(AppSetting).filter(AppSetting.key == DELETED_KNOWN_DEVICES_KEY).one_or_none()
+    if setting is None:
+        db.add(AppSetting(key=DELETED_KNOWN_DEVICES_KEY, value=value))
+        return
+    setting.value = value
 
 
 def _ping_host(host: str | None) -> str:
@@ -67,8 +99,11 @@ def update_device(db: Session, device_id: int, payload: DeviceUpdate) -> Device 
     if device is None:
         return None
 
+    original_name = device.name
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(device, key, value)
+    if device.name != original_name:
+        _remember_deleted_known_device(db, original_name)
 
     db.commit()
     db.refresh(device)
@@ -76,6 +111,10 @@ def update_device(db: Session, device_id: int, payload: DeviceUpdate) -> Device 
 
 
 def delete_device(db: Session, device_id: int) -> bool:
-    count = db.query(Device).filter(Device.id == device_id).delete()
+    device = db.query(Device).filter(Device.id == device_id).one_or_none()
+    if device is None:
+        return False
+    _remember_deleted_known_device(db, device.name)
+    db.delete(device)
     db.commit()
-    return count > 0
+    return True

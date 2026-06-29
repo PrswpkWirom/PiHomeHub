@@ -26,6 +26,7 @@ class TailscaleDeviceRead(BaseModel):
     tailscale_id: str
     node_id: str | None
     machine_name: str
+    display_name: str
     hostname: str | None
     tailscale_ips: list[str]
     os: str | None
@@ -48,4 +49,13 @@ class TailscaleWolUpdate(BaseModel):
     lan_ip_address: str | None = Field(default=None, max_length=128)
     broadcast_address: str | None = Field(default=None, max_length=128)
     alias: str | None = Field(default=None, max_length=128)
+    note: str | None = None
+
+
+class TailscaleDeviceSettingsUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=128)
+    supports_wol: bool
+    mac_address: str | None = Field(default=None, max_length=32)
+    lan_ip_address: str | None = Field(default=None, max_length=128)
+    broadcast_address: str | None = Field(default=None, max_length=128)
     note: str | None = None

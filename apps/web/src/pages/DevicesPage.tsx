@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
-import type { DeviceSummary, DeviceWrite, TailscaleDevice, TailscaleWolWrite } from "../types/api";
+import type { DeviceSummary, DeviceWrite, TailscaleDevice, TailscaleDeviceSettingsWrite } from "../types/api";
 
 const emptyManualDevice: DeviceWrite = {
   name: "",
@@ -14,6 +14,15 @@ const emptyManualDevice: DeviceWrite = {
   mac_address: "",
   supports_wol: false,
   description: ""
+};
+
+const emptyTailscaleSettings: TailscaleDeviceSettingsWrite = {
+  display_name: "",
+  supports_wol: false,
+  mac_address: "",
+  lan_ip_address: "",
+  broadcast_address: "",
+  note: ""
 };
 
 const TAILSCALE_REFRESH_MS = 60_000;
@@ -49,17 +58,25 @@ function hasRecentTailscaleSync(devices: TailscaleDevice[]) {
   });
 }
 
+function detailValue(value: string | string[] | null | undefined) {
+  if (Array.isArray(value)) {
+    return value.length ? value.join(", ") : "None";
+  }
+  return value || "None";
+}
+
 export function DevicesPage() {
   const manual = useFetch<DeviceSummary[]>("/api/devices");
   const tailscale = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
   const [manualForm, setManualForm] = useState<DeviceWrite>(emptyManualDevice);
   const [editingManualId, setEditingManualId] = useState<number | null>(null);
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
-  const [wolForm, setWolForm] = useState<TailscaleWolWrite>({ supports_wol: false });
+  const [settingsForm, setSettingsForm] = useState<TailscaleDeviceSettingsWrite>(emptyTailscaleSettings);
   const [message, setMessage] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
   const setTailscaleData = tailscale.setData;
+  const editingTailscaleDevice = tailscale.data?.find((device) => device.id === editingTailscaleId) ?? null;
 
   const syncTailscale = useCallback(async ({ silent = false, force = false }: { silent?: boolean; force?: boolean } = {}) => {
     if (silent && tailscaleSyncPromise) {
@@ -135,40 +152,44 @@ export function DevicesPage() {
     manual.setData((current) => (current ?? []).filter((device) => device.id !== deviceId));
   };
 
-  const configureWol = (device: TailscaleDevice) => {
+  const openTailscaleSettings = (device: TailscaleDevice) => {
     setEditingTailscaleId(device.id);
-    setWolForm({
+    setSettingsForm({
+      display_name: device.alias ?? "",
       supports_wol: device.supports_wol,
       mac_address: device.mac_address ?? "",
       lan_ip_address: device.lan_ip_address ?? "",
       broadcast_address: device.broadcast_address ?? "",
-      alias: device.alias ?? "",
       note: device.note ?? ""
     });
   };
 
-  const saveTailscaleWol = async (event: FormEvent) => {
+  const closeTailscaleSettings = () => {
+    setEditingTailscaleId(null);
+    setSettingsForm(emptyTailscaleSettings);
+  };
+
+  const saveTailscaleSettings = async (event: FormEvent) => {
     event.preventDefault();
     if (!editingTailscaleId) {
       return;
     }
-    const updated = await api.patch<TailscaleDevice>(`/api/tailscale/devices/${editingTailscaleId}/wol`, {
-      supports_wol: wolForm.supports_wol,
-      mac_address: wolForm.mac_address || null,
-      lan_ip_address: wolForm.lan_ip_address || null,
-      broadcast_address: wolForm.broadcast_address || null,
-      alias: wolForm.alias || null,
-      note: wolForm.note || null
+    const updated = await api.patch<TailscaleDevice>(`/api/tailscale/devices/${editingTailscaleId}/settings`, {
+      display_name: settingsForm.display_name || null,
+      supports_wol: settingsForm.supports_wol,
+      mac_address: settingsForm.mac_address || null,
+      lan_ip_address: settingsForm.lan_ip_address || null,
+      broadcast_address: settingsForm.broadcast_address || null,
+      note: settingsForm.note || null
     });
     tailscale.setData((current) => (current ?? []).map((device) => (device.id === editingTailscaleId ? updated : device)));
-    setEditingTailscaleId(null);
-    setWolForm({ supports_wol: false });
+    closeTailscaleSettings();
   };
 
   const wakeTailscale = async (device: TailscaleDevice) => {
     try {
       await api.post(`/api/tailscale/devices/${device.id}/wake`);
-      setMessage(`Wake packet sent to ${device.machine_name}.`);
+      setMessage(`Wake packet sent to ${device.display_name}.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Wake failed.");
     }
@@ -197,9 +218,8 @@ export function DevicesPage() {
           {tailscale.data?.map((device) => (
             <div key={device.id} className="grid gap-4 rounded-3xl bg-clay p-5 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center">
               <div>
-                <p className="font-semibold text-ink">{device.machine_name}</p>
+                <p className="font-semibold text-ink">{device.display_name}</p>
                 <p className="text-sm text-slate-600">{device.hostname ?? "No hostname"} · {device.os ?? "Unknown OS"}</p>
-                <p className="mt-1 break-all text-sm text-slate-500">{device.tailscale_ips.join(", ") || "No Tailscale address"}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={device.online ? "online" : "offline"} />
@@ -207,8 +227,8 @@ export function DevicesPage() {
                 <span className="text-sm text-slate-500">Last seen: {device.last_seen ?? "Unknown"}</span>
               </div>
               <div className="flex flex-wrap gap-2 xl:justify-end">
-                <button className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink" onClick={() => configureWol(device)}>
-                  Configure WOL
+                <button className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink" onClick={() => openTailscaleSettings(device)}>
+                  Setting
                 </button>
                 <button className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" disabled={!canWake(device)} onClick={() => void wakeTailscale(device)}>
                   Wake
@@ -218,22 +238,63 @@ export function DevicesPage() {
           ))}
           {tailscale.data?.length === 0 ? <p className="text-sm text-slate-600">No Tailscale devices synced yet. Add the API token in Settings and run sync.</p> : null}
         </div>
-        {editingTailscaleId ? (
-          <form className="mt-5 grid gap-3 rounded-3xl border border-slate-200 bg-white p-5" onSubmit={saveTailscaleWol}>
-            <label className="flex items-center gap-3 text-sm font-semibold text-ink">
-              <input type="checkbox" checked={wolForm.supports_wol} onChange={(event) => setWolForm({ ...wolForm, supports_wol: event.target.checked })} />
-              Supports Wake-on-LAN
-            </label>
-            <div className="grid gap-3 md:grid-cols-2">
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="MAC address" value={wolForm.mac_address ?? ""} onChange={(event) => setWolForm({ ...wolForm, mac_address: event.target.value })} />
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="LAN IP address" value={wolForm.lan_ip_address ?? ""} onChange={(event) => setWolForm({ ...wolForm, lan_ip_address: event.target.value })} />
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Broadcast address" value={wolForm.broadcast_address ?? ""} onChange={(event) => setWolForm({ ...wolForm, broadcast_address: event.target.value })} />
-              <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Alias" value={wolForm.alias ?? ""} onChange={(event) => setWolForm({ ...wolForm, alias: event.target.value })} />
+        {editingTailscaleDevice ? (
+          <form className="mt-5 grid gap-5 rounded-3xl border border-slate-200 bg-white p-5" onSubmit={saveTailscaleSettings}>
+            <div className="grid gap-2">
+              <label className="text-sm font-semibold text-ink" htmlFor="tailscale-display-name">
+                Display name
+              </label>
+              <input
+                id="tailscale-display-name"
+                className="rounded-2xl border border-slate-200 px-4 py-3"
+                placeholder={editingTailscaleDevice.machine_name}
+                value={settingsForm.display_name ?? ""}
+                onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
+              />
+              <p className="text-sm text-slate-500">Leave blank to use the Tailscale machine name.</p>
             </div>
-            <textarea className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Note" value={wolForm.note ?? ""} onChange={(event) => setWolForm({ ...wolForm, note: event.target.value })} />
+
+            <section className="grid gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Tailscale information</h3>
+              <div className="grid gap-3 md:grid-cols-2">
+                {[
+                  ["Tailscale name", editingTailscaleDevice.machine_name],
+                  ["Hostname", editingTailscaleDevice.hostname],
+                  ["Node ID", editingTailscaleDevice.node_id],
+                  ["Tailscale ID", editingTailscaleDevice.tailscale_id],
+                  ["OS", editingTailscaleDevice.os],
+                  ["IP addresses", editingTailscaleDevice.tailscale_ips],
+                  ["Tags", editingTailscaleDevice.tags],
+                  ["Online", editingTailscaleDevice.online ? "Yes" : "No"],
+                  ["Sync status", editingTailscaleDevice.sync_status],
+                  ["Last seen", editingTailscaleDevice.last_seen],
+                  ["Last synced", editingTailscaleDevice.last_synced_at]
+                ].map(([label, value]) => (
+                  <div key={label as string} className="rounded-2xl bg-clay px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                    <p className="mt-1 break-all text-sm text-ink">{detailValue(value as string | string[] | null)}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="grid gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Wake-on-LAN</h3>
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-ink">
+                <input type="checkbox" checked={settingsForm.supports_wol} onChange={(event) => setSettingsForm({ ...settingsForm, supports_wol: event.target.checked })} />
+                Supports Wake-on-LAN
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="MAC address" value={settingsForm.mac_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, mac_address: event.target.value })} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="LAN IP address" value={settingsForm.lan_ip_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, lan_ip_address: event.target.value })} />
+                <input className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Broadcast address" value={settingsForm.broadcast_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, broadcast_address: event.target.value })} />
+              </div>
+              <textarea className="rounded-2xl border border-slate-200 px-4 py-3" placeholder="Note" value={settingsForm.note ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, note: event.target.value })} />
+            </section>
+
             <div className="flex gap-2">
-              <button className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">Save WOL</button>
-              <button className="rounded-full border border-ink px-5 py-3 text-sm font-semibold text-ink" type="button" onClick={() => setEditingTailscaleId(null)}>
+              <button className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">Save Settings</button>
+              <button className="rounded-full border border-ink px-5 py-3 text-sm font-semibold text-ink" type="button" onClick={closeTailscaleSettings}>
                 Cancel
               </button>
             </div>

@@ -4,7 +4,8 @@ import { api } from "../api/client";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
-import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TaskItem } from "../types/api";
+import { Link } from "react-router-dom";
+import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TailscaleDevice, TaskItem } from "../types/api";
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -18,15 +19,32 @@ function Metric({ label, value }: { label: string; value: string }) {
 export function DashboardPage() {
   const metrics = useFetch<PiStatus>("/api/system/pi", { staleTimeMs: 4_000, refetchIntervalMs: 5_000 });
   const devices = useFetch<DeviceSummary[]>("/api/devices");
+  const tailscaleDevices = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
   const services = useFetch<ServiceStatus[]>("/api/services/status");
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const tasks = useFetch<TaskItem[]>("/api/tasks");
   const [wolMessage, setWolMessage] = useState<string | null>(null);
+  const activeManualDevices = devices.data?.filter((device) => device.status === "online") ?? [];
+  const activeTailscaleDevices = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
+  const manualHiddenCount = devices.data ? devices.data.length - activeManualDevices.length : 0;
+  const tailscaleHiddenCount = tailscaleDevices.data ? tailscaleDevices.data.length - activeTailscaleDevices.length : 0;
+  const hiddenDeviceCount = manualHiddenCount + tailscaleHiddenCount;
+  const devicesLoaded = devices.data !== null && tailscaleDevices.data !== null;
+  const hasActiveDevices = activeManualDevices.length + activeTailscaleDevices.length > 0;
 
   const wake = async (deviceId: number) => {
     try {
       await api.post("/api/wol/wake", { device_id: deviceId });
       setWolMessage("Wake-on-LAN packet sent.");
+    } catch (error) {
+      setWolMessage(error instanceof Error ? error.message : "Wake failed");
+    }
+  };
+
+  const wakeTailscale = async (device: TailscaleDevice) => {
+    try {
+      await api.post(`/api/tailscale/devices/${device.id}/wake`);
+      setWolMessage(`Wake-on-LAN packet sent to ${device.display_name}.`);
     } catch (error) {
       setWolMessage(error instanceof Error ? error.message : "Wake failed");
     }
@@ -59,7 +77,7 @@ export function DashboardPage() {
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <Panel title="Devices">
           <div className="space-y-4">
-            {devices.data?.map((device) => (
+            {activeManualDevices.map((device) => (
               <div key={`${device.name}-${device.id ?? "local"}`} className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-100 bg-white p-4">
                 <div>
                   <p className="font-semibold text-ink">{device.name}</p>
@@ -82,6 +100,34 @@ export function DashboardPage() {
                 </div>
               </div>
             ))}
+            {tailscaleDevices.error ? <p className="text-sm text-red-700">{tailscaleDevices.error}</p> : null}
+            {activeTailscaleDevices.map((device) => (
+              <div key={`tailscale-${device.id}`} className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-100 bg-white p-4">
+                <div>
+                  <p className="font-semibold text-ink">{device.display_name}</p>
+                  <p className="text-sm text-slate-500">{device.hostname ?? device.machine_name} · {device.os ?? "Unknown OS"}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <StatusPill status={device.online ? "online" : "offline"} />
+                  {device.supports_wol && device.mac_address ? (
+                    <button
+                      className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink"
+                      onClick={() => {
+                        void wakeTailscale(device);
+                      }}
+                    >
+                      Wake
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            {devicesLoaded && !hasActiveDevices ? <p className="text-sm text-slate-600">No active devices right now.</p> : null}
+            {hiddenDeviceCount > 0 ? (
+              <Link to="/devices" className="block text-sm font-semibold text-moss">
+                {hiddenDeviceCount} inactive {hiddenDeviceCount === 1 ? "device" : "devices"} hidden
+              </Link>
+            ) : null}
             {wolMessage ? <p className="text-sm text-slate-600">{wolMessage}</p> : null}
           </div>
         </Panel>

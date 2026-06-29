@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.database.db import get_db
 from app.schemas.tailscale import (
     TailscaleConnectionResult,
+    TailscaleDeviceSettingsUpdate,
     TailscaleDeviceRead,
     TailscaleSettingsWrite,
     TailscaleStatus,
@@ -16,6 +17,7 @@ from app.services.tailscale_service import (
     save_tailscale_settings,
     sync_tailscale_devices,
     test_tailscale_connection,
+    update_tailscale_device_settings,
     update_tailscale_wol,
     wake_tailscale_device,
 )
@@ -51,6 +53,13 @@ async def devices(db: Session = Depends(get_db)):
 @router.patch("/devices/{device_id}/wol", response_model=TailscaleDeviceRead)
 async def configure_wol(device_id: int, payload: TailscaleWolUpdate, db: Session = Depends(get_db)):
     return update_tailscale_wol(db, device_id, payload)
+
+
+@router.patch("/devices/{device_id}/settings", response_model=TailscaleDeviceRead)
+async def configure_device_settings(
+    device_id: int, payload: TailscaleDeviceSettingsUpdate, db: Session = Depends(get_db)
+):
+    return update_tailscale_device_settings(db, device_id, payload)
 
 
 @router.post("/devices/{device_id}/wake")

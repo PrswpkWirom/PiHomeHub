@@ -55,6 +55,7 @@ export type TailscaleDevice = {
   tailscale_id: string;
   node_id: string | null;
   machine_name: string;
+  display_name: string;
   hostname: string | null;
   tailscale_ips: string[];
   os: string | null;
@@ -77,6 +78,15 @@ export type TailscaleWolWrite = {
   lan_ip_address?: string | null;
   broadcast_address?: string | null;
   alias?: string | null;
+  note?: string | null;
+};
+
+export type TailscaleDeviceSettingsWrite = {
+  display_name?: string | null;
+  supports_wol: boolean;
+  mac_address?: string | null;
+  lan_ip_address?: string | null;
+  broadcast_address?: string | null;
   note?: string | null;
 };
 
