@@ -22,6 +22,9 @@ COMPOSE_PROJECT_DIR = (
 COMPOSE_PROFILE = "home-services"
 CONTROLLABLE_SERVICES: dict[str, tuple[str, ...]] = {
     "adguard-home": ("build", "start", "stop", "restart"),
+    "gitea": ("build", "start", "stop", "restart"),
+    "mosquitto": ("build", "start", "stop", "restart"),
+    "uptime-kuma": ("build", "start", "stop", "restart"),
     "vaultwarden": ("build", "start", "stop", "restart"),
 }
 ACTION_MESSAGES = {

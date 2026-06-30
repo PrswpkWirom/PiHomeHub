@@ -161,6 +161,20 @@ async def test_service_action_rejects_unknown_service_and_action(app):
 
 
 @pytest.mark.anyio
+async def test_service_capabilities_include_all_optional_services(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        response = await client.get("/api/services/capabilities")
+
+    assert response.status_code == 200
+    capabilities = {item["slug"]: item["actions"] for item in response.json()}
+    assert set(capabilities) == {"adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden"}
+    assert all(actions == ["build", "start", "stop", "restart"] for actions in capabilities.values())
+
+
+@pytest.mark.anyio
 async def test_service_action_runs_allowlisted_compose_command(app):
     from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
 
@@ -190,6 +204,39 @@ async def test_service_action_runs_allowlisted_compose_command(app):
             "up",
             "-d",
             "adguard-home",
+        ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("slug", ["gitea", "uptime-kuma", "mosquitto"])
+async def test_service_action_runs_new_optional_service_compose_command(app, slug):
+    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 0
+            mocked_run.return_value.stdout = "started"
+            mocked_run.return_value.stderr = ""
+            response = await client.post(f"/api/services/{slug}/actions/start")
+
+        assert response.status_code == 200
+        assert response.json()["slug"] == slug
+        mocked_run.assert_called_once()
+        assert mocked_run.call_args.args[0] == [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "--project-directory",
+            str(COMPOSE_PROJECT_DIR),
+            "--profile",
+            COMPOSE_PROFILE,
+            "up",
+            "-d",
+            slug,
         ]
 
 
