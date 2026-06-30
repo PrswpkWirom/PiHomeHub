@@ -3,14 +3,27 @@
 @tailwind utilities;
 
 :root {
-  font-family: "Trebuchet MS", sans-serif;
-  color: #24303f;
-  background: #f3ede2;
+  font-family: Outfit, Aptos, "Segoe UI", sans-serif;
+  color: #f4f7fb;
+  background: #282934;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(60, 199, 200, 0.14), transparent 28rem),
+    radial-gradient(circle at 100% 18%, rgba(148, 153, 173, 0.1), transparent 24rem),
+    #282934;
 }
 
 * {
@@ -23,6 +36,125 @@ a {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
+}
+
+button,
+a,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@layer base {
+  ::selection {
+    background: rgba(60, 199, 200, 0.32);
+    color: #ffffff;
+  }
+}
+
+@layer components {
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-deep;
+  }
+
+  .page-stack {
+    @apply grid gap-5 sm:gap-6;
+  }
+
+  .page-header {
+    @apply flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between;
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-accent;
+  }
+
+  .page-title {
+    @apply font-display text-3xl font-semibold leading-tight text-white sm:text-4xl;
+    text-wrap: balance;
+  }
+
+  .page-copy {
+    @apply max-w-2xl text-sm leading-6 text-muted;
+    text-wrap: pretty;
+  }
+
+  .app-panel {
+    @apply rounded-2xl border border-line bg-card p-5 shadow-panel backdrop-blur sm:p-6;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 22px 50px rgba(8, 10, 18, 0.24);
+  }
+
+  .raised-card {
+    @apply rounded-xl border border-line bg-raised p-4;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+
+  .metric-card {
+    @apply rounded-xl border border-line bg-deep p-4 transition duration-200 hover:-translate-y-0.5 hover:border-accent;
+  }
+
+  .btn-primary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-deep transition duration-200 hover:-translate-y-0.5 hover:bg-[#52d6d6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-0 disabled:translate-y-0 disabled:bg-muted disabled:text-deep disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-deep px-4 py-2 text-sm font-semibold text-mist transition duration-200 hover:-translate-y-0.5 hover:border-accent hover:bg-accent-soft hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-0 disabled:translate-y-0 disabled:opacity-45;
+  }
+
+  .btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-danger bg-deep px-4 py-2 text-sm font-semibold text-danger transition duration-200 hover:-translate-y-0.5 hover:bg-card focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger active:translate-y-0;
+  }
+
+  .field-label {
+    @apply grid gap-2 text-sm font-semibold text-mist;
+  }
+
+  .input-field {
+    @apply min-h-12 w-full rounded-xl border border-line bg-deep px-4 py-3 text-sm text-white outline-none transition duration-200 placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent disabled:opacity-55;
+  }
+
+  .textarea-field {
+    @apply min-h-28 w-full rounded-xl border border-line bg-deep px-4 py-3 text-sm text-white outline-none transition duration-200 placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent;
+  }
+
+  .check-row {
+    @apply flex min-h-12 items-center gap-3 rounded-xl border border-line bg-deep px-4 py-3 text-sm font-semibold text-mist;
+  }
+
+  .check-input {
+    @apply h-5 w-5 rounded border-line bg-deep accent-accent;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-xl bg-white/[0.07];
+  }
+
+  .empty-state {
+    @apply rounded-xl border border-dashed border-line bg-deep p-5 text-sm leading-6 text-muted;
+  }
+
+  .error-callout {
+    @apply rounded-xl border border-danger bg-deep p-4 text-sm leading-6 text-danger;
+  }
+
+  .info-callout {
+    @apply rounded-xl border border-accent bg-accent-soft p-4 text-sm leading-6 text-mist;
+  }
+
+  .mono-value {
+    @apply font-mono text-sm tabular-nums text-white;
+  }
 }

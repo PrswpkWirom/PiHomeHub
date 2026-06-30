@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ArrowRight, Cpu, ExternalLink, HardDrive, MemoryStick, Power, Thermometer } from "lucide-react";
 
 import { api } from "../api/client";
 import { Panel } from "../components/Panel";
@@ -7,11 +8,25 @@ import { useFetch } from "../hooks/useFetch";
 import { Link } from "react-router-dom";
 import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TailscaleDevice, TaskItem } from "../types/api";
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, detail, icon: Icon }: { label: string; value: string; detail?: string; icon: typeof Cpu }) {
   return (
-    <div className="rounded-3xl bg-clay p-4">
-      <p className="text-xs uppercase tracking-[0.25em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-ink">{value}</p>
+    <div className="metric-card">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{label}</p>
+        <Icon className="text-accent" size={18} />
+      </div>
+      <p className="mt-3 font-mono text-3xl font-semibold tabular-nums text-white">{value}</p>
+      {detail ? <p className="mt-1 text-sm text-muted">{detail}</p> : null}
+    </div>
+  );
+}
+
+function SkeletonGrid({ count = 4 }: { count?: number }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {Array.from({ length: count }).map((_, index) => (
+        <div key={index} className="skeleton h-28" />
+      ))}
     </div>
   );
 }
@@ -51,122 +66,153 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="grid gap-6">
+    <div className="page-stack">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Operations</p>
+          <h1 className="page-title">Home systems at a glance</h1>
+          <p className="page-copy">Health, devices, and services stay visible first. Planner items and shortcuts sit behind the operational view.</p>
+        </div>
+      </div>
+
       <Panel
-        title="System Overview"
+        title="System health"
         action={
-          <span className="text-sm text-slate-500">
-            {metrics.refreshing ? "Refreshing..." : metrics.updatedAt ? `Updated ${new Date(metrics.updatedAt).toLocaleTimeString()}` : null}
+          <span className="rounded-lg border border-line bg-white/[0.04] px-3 py-2 text-xs font-semibold text-muted">
+            {metrics.refreshing ? "Refreshing..." : metrics.updatedAt ? `Updated ${new Date(metrics.updatedAt).toLocaleTimeString()}` : "Waiting"}
           </span>
         }
       >
         {metrics.loading ? (
-          <p>Loading system metrics…</p>
+          <SkeletonGrid />
         ) : metrics.error || !metrics.data ? (
-          <p className="text-red-700">{metrics.error ?? "Metrics unavailable"}</p>
+          <p className="error-callout">{metrics.error ?? "Metrics unavailable."}</p>
         ) : (
-          <div className="grid gap-4 md:grid-cols-4">
-            <Metric label="CPU" value={`${metrics.data.cpu_percent.toFixed(0)}%`} />
-            <Metric label="RAM" value={`${metrics.data.memory_percent.toFixed(0)}%`} />
-            <Metric label="Disk" value={`${metrics.data.disk_percent.toFixed(0)}%`} />
-            <Metric label="Temp" value={metrics.data.temperature_c ? `${metrics.data.temperature_c.toFixed(1)} C` : "N/A"} />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Metric label="CPU" value={`${metrics.data.cpu_percent.toFixed(0)}%`} detail={metrics.data.hostname} icon={Cpu} />
+            <Metric label="Memory" value={`${metrics.data.memory_percent.toFixed(0)}%`} detail={metrics.data.platform} icon={MemoryStick} />
+            <Metric label="Disk" value={`${metrics.data.disk_percent.toFixed(0)}%`} detail={metrics.data.local_ip ?? "No local IP"} icon={HardDrive} />
+            <Metric label="Temp" value={metrics.data.temperature_c ? `${metrics.data.temperature_c.toFixed(1)} C` : "N/A"} detail="Pi thermal reading" icon={Thermometer} />
           </div>
         )}
       </Panel>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Devices">
+      <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel title="Active devices" description="Online manual and Tailscale devices that are reachable now.">
           <div className="space-y-4">
+            {devices.loading || tailscaleDevices.loading ? <div className="skeleton h-24" /> : null}
+            {devices.error ? <p className="error-callout">{devices.error}</p> : null}
             {activeManualDevices.map((device) => (
-              <div key={`${device.name}-${device.id ?? "local"}`} className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-100 bg-white p-4">
-                <div>
-                  <p className="font-semibold text-ink">{device.name}</p>
-                  <p className="text-sm text-slate-500">{device.description ?? device.device_type}</p>
+              <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-semibold text-white">{device.name}</p>
+                  <p className="mt-1 text-sm text-muted">{device.description ?? device.device_type}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusPill status={device.status} />
                   {device.supports_wol && device.id !== null ? (
                     <button
-                      className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink"
+                      className="btn-secondary"
                       onClick={() => {
                         if (device.id !== null) {
                           void wake(device.id);
                         }
                       }}
                     >
+                      <Power size={16} />
                       Wake
                     </button>
                   ) : null}
                 </div>
               </div>
             ))}
-            {tailscaleDevices.error ? <p className="text-sm text-red-700">{tailscaleDevices.error}</p> : null}
+            {tailscaleDevices.error ? <p className="error-callout">{tailscaleDevices.error}</p> : null}
             {activeTailscaleDevices.map((device) => (
-              <div key={`tailscale-${device.id}`} className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-slate-100 bg-white p-4">
-                <div>
-                  <p className="font-semibold text-ink">{device.display_name}</p>
-                  <p className="text-sm text-slate-500">{device.hostname ?? device.machine_name} · {device.os ?? "Unknown OS"}</p>
+              <div key={`tailscale-${device.id}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-semibold text-white">{device.display_name}</p>
+                  <p className="mt-1 text-sm text-muted">{device.hostname ?? device.machine_name} / {device.os ?? "Unknown OS"}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusPill status={device.online ? "online" : "offline"} />
                   {device.supports_wol && device.mac_address ? (
                     <button
-                      className="rounded-full border border-ink px-4 py-2 text-sm font-semibold text-ink"
+                      className="btn-secondary"
                       onClick={() => {
                         void wakeTailscale(device);
                       }}
                     >
+                      <Power size={16} />
                       Wake
                     </button>
                   ) : null}
                 </div>
               </div>
             ))}
-            {devicesLoaded && !hasActiveDevices ? <p className="text-sm text-slate-600">No active devices right now.</p> : null}
+            {devicesLoaded && !hasActiveDevices ? <p className="empty-state">No active devices right now. Devices will appear here when they report online.</p> : null}
             {hiddenDeviceCount > 0 ? (
-              <Link to="/devices" className="block text-sm font-semibold text-moss">
+              <Link to="/devices" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-white">
                 {hiddenDeviceCount} inactive {hiddenDeviceCount === 1 ? "device" : "devices"} hidden
+                <ArrowRight size={16} />
               </Link>
             ) : null}
-            {wolMessage ? <p className="text-sm text-slate-600">{wolMessage}</p> : null}
+            {wolMessage ? <p className="info-callout">{wolMessage}</p> : null}
           </div>
         </Panel>
 
-        <Panel title="Planner">
+        <Panel title="Service status" description="Current health for the local services exposed by PiHomeHub.">
           <div className="space-y-3">
-            {tasks.data?.map((task) => (
-              <div key={task.id} className="rounded-3xl bg-clay px-4 py-3">
-                <p className={`font-semibold ${task.is_complete ? "line-through text-slate-500" : "text-ink"}`}>{task.title}</p>
-                <p className="text-sm text-slate-500">{task.due_label ?? "No due label"}</p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Panel title="Services">
-          <div className="space-y-3">
+            {services.loading ? <div className="skeleton h-24" /> : null}
+            {services.error ? <p className="error-callout">{services.error}</p> : null}
             {services.data?.map((service) => (
-              <div key={service.slug} className="flex items-center justify-between rounded-3xl border border-slate-100 bg-white p-4">
-                <div>
-                  <p className="font-semibold text-ink">{service.name}</p>
-                  <p className="text-sm text-slate-500">{service.detail}</p>
+              <div key={service.slug} className="raised-card flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-semibold text-white">{service.name}</p>
+                  <p className="mt-1 truncate text-sm text-muted">{service.detail}</p>
                 </div>
                 <StatusPill status={service.status} />
               </div>
             ))}
+            {services.data?.length === 0 ? <p className="empty-state">No services are reporting status yet.</p> : null}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="Planner" description="Open tasks kept secondary to the live operational panels.">
+          <div className="space-y-3">
+            {tasks.loading ? <div className="skeleton h-20" /> : null}
+            {tasks.error ? <p className="error-callout">{tasks.error}</p> : null}
+            {tasks.data?.slice(0, 4).map((task) => (
+              <div key={task.id} className="raised-card">
+                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-white"}`}>{task.title}</p>
+                <p className="mt-1 text-sm text-muted">{task.due_label ?? "No due label"}</p>
+              </div>
+            ))}
+            {tasks.data?.length === 0 ? <p className="empty-state">No tasks yet.</p> : null}
+            {(tasks.data?.length ?? 0) > 4 ? (
+              <Link to="/planner" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-white">
+                View all tasks
+                <ArrowRight size={16} />
+              </Link>
+            ) : null}
           </div>
         </Panel>
 
-        <Panel title="Quick Links">
-          <div className="grid gap-3">
+        <Panel title="Quick links" description="Pinned dashboards and service entry points.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {links.loading ? <div className="skeleton h-28 sm:col-span-2" /> : null}
+            {links.error ? <p className="error-callout sm:col-span-2">{links.error}</p> : null}
             {links.data?.map((link) => (
-              <a key={link.slug} href={link.url} target="_blank" rel="noreferrer" className="rounded-3xl border border-slate-100 bg-white p-4 transition hover:-translate-y-0.5">
-                <p className="font-semibold text-ink">{link.name}</p>
-                <p className="text-sm text-slate-500">{link.description ?? link.url}</p>
+              <a key={link.slug} href={link.url} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-white">{link.name}</p>
+                  <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? link.url}</p>
               </a>
             ))}
+            {links.data?.length === 0 ? <p className="empty-state sm:col-span-2">No dashboard links configured.</p> : null}
           </div>
         </Panel>
       </div>

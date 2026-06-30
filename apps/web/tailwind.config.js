@@ -4,17 +4,27 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#14213d",
-        clay: "#f3ede2",
-        ember: "#e76f51",
-        moss: "#58735c"
+        app: "#282934",
+        deep: "#1f2028",
+        card: "#30313d",
+        raised: "#363746",
+        line: "rgba(255, 255, 255, 0.1)",
+        mist: "#d7dae7",
+        muted: "#9499ad",
+        accent: "#3cc7c8",
+        "accent-soft": "rgba(60, 199, 200, 0.14)",
+        success: "#4ade80",
+        warning: "#f5c15c",
+        danger: "#fb7185"
       },
       fontFamily: {
-        display: ["Georgia", "serif"],
-        body: ["'Trebuchet MS'", "sans-serif"]
+        display: ["Outfit", "Aptos Display", "Segoe UI", "sans-serif"],
+        body: ["Outfit", "Aptos", "Segoe UI", "sans-serif"],
+        mono: ["'SFMono-Regular'", "Consolas", "'Liberation Mono'", "monospace"]
       },
       boxShadow: {
-        panel: "0 18px 36px rgba(20, 33, 61, 0.08)"
+        panel: "0 22px 50px rgba(8, 10, 18, 0.24)",
+        glow: "0 0 0 1px rgba(60, 199, 200, 0.22), 0 18px 44px rgba(20, 144, 146, 0.13)"
       }
     }
   },

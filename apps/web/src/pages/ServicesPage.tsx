@@ -1,3 +1,5 @@
+import { ExternalLink, Info, Server } from "lucide-react";
+
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
@@ -60,28 +62,48 @@ export function ServicesPage() {
   const links = useFetch<ServiceLink[]>("/api/services/links");
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Panel title="Monitored Services">
+    <div className="page-stack">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Services</p>
+          <h1 className="page-title">Service control room</h1>
+          <p className="page-copy">Monitor local services, inspect their purpose, and open their dashboards without losing operational context.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+      <Panel title="Monitored services" description="Runtime state reported by the backend service checks.">
+        {statuses.loading ? (
+          <div className="space-y-3">
+            <div className="skeleton h-28" />
+            <div className="skeleton h-28" />
+          </div>
+        ) : null}
+        {statuses.error ? <p className="error-callout">{statuses.error}</p> : null}
         <div className="space-y-4">
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
 
             return (
-              <div key={service.slug} className="rounded-3xl bg-clay p-4">
+              <article key={service.slug} className="raised-card">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-semibold text-ink">{service.name}</p>
-                    <p className="text-sm text-slate-500">{service.detail}</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Server className="text-accent" size={17} />
+                      <p className="font-semibold text-white">{service.name}</p>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-muted">{service.detail}</p>
                   </div>
                   <StatusPill status={service.status} />
                 </div>
                 {info ? (
-                  <details className="group mt-3 border-t border-white/70 pt-3">
-                    <summary className="cursor-pointer list-none text-sm font-semibold text-moss outline-none transition hover:text-ink focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-moss/40">
+                  <details className="group mt-4 border-t border-line pt-4">
+                    <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-accent outline-none transition hover:text-white focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-accent/40">
+                      <Info size={16} />
                       <span className="group-open:hidden">More info</span>
                       <span className="hidden group-open:inline">Hide info</span>
                     </summary>
-                    <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600">
+                    <div className="mt-3 space-y-3 text-sm leading-6 text-muted">
                       <p>{info.summary}</p>
                       <p>{info.useCase}</p>
                       <div className="flex flex-wrap gap-2">
@@ -91,8 +113,9 @@ export function ServicesPage() {
                             href={link.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded-full border border-moss/30 px-3 py-1 font-semibold text-moss transition hover:border-moss hover:bg-white/60"
+                            className="inline-flex items-center gap-2 rounded-lg border border-line bg-white/[0.04] px-3 py-2 font-semibold text-mist transition duration-200 hover:border-accent/40 hover:bg-accent-soft hover:text-white"
                           >
+                            <ExternalLink size={14} />
                             {link.label}
                           </a>
                         ))}
@@ -100,21 +123,29 @@ export function ServicesPage() {
                     </div>
                   </details>
                 ) : null}
-              </div>
+              </article>
             );
           })}
+          {statuses.data?.length === 0 ? <p className="empty-state">No monitored services are configured yet.</p> : null}
         </div>
       </Panel>
-      <Panel title="Dashboards">
-        <div className="space-y-4">
+      <Panel title="Dashboards" description="Open linked service dashboards in a new browser context.">
+        {links.loading ? <div className="skeleton h-28" /> : null}
+        {links.error ? <p className="error-callout">{links.error}</p> : null}
+        <div className="grid gap-4">
           {links.data?.map((link) => (
-            <a key={link.slug} href={link.url} className="block rounded-3xl bg-clay p-4">
-              <p className="font-semibold text-ink">{link.name}</p>
-              <p className="text-sm text-slate-500">{link.description ?? link.url}</p>
+            <a key={link.slug} href={link.url} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-semibold text-white">{link.name}</p>
+                <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
+              </div>
+              <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? link.url}</p>
             </a>
           ))}
+          {links.data?.length === 0 ? <p className="empty-state">No dashboard links are available.</p> : null}
         </div>
       </Panel>
+      </div>
     </div>
   );
 }

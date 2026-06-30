@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { LockKeyhole, Router } from "lucide-react";
 
 import { useAuth } from "../contexts/AuthContext";
 
@@ -26,24 +27,32 @@ export function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(135deg,_#14213d_0%,_#1f4f58_45%,_#58735c_100%)] px-4">
-      <form className="w-full max-w-md rounded-[2rem] bg-white/90 p-8 shadow-panel" onSubmit={onSubmit}>
-        <p className="text-xs uppercase tracking-[0.3em] text-ember">LAN and Tailscale only</p>
-        <h1 className="mt-3 font-display text-4xl text-ink">PiHomeHub</h1>
-        <p className="mt-2 text-sm text-slate-600">Single-admin access for your private home dashboard.</p>
-        <label className="mt-6 block text-sm font-semibold text-ink">
+    <main className="grid min-h-dvh overflow-x-hidden bg-app px-4 py-8 text-mist sm:place-items-center">
+      <form className="app-panel w-full min-w-0 max-w-[20.5rem] self-start justify-self-start sm:mx-auto sm:max-w-md sm:self-auto sm:justify-self-center" onSubmit={onSubmit}>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="grid h-12 w-12 place-items-center rounded-xl border border-accent/35 bg-accent-soft text-accent">
+            <Router size={24} />
+          </div>
+          <div className="min-w-0">
+            <p className="eyebrow">LAN and Tailscale</p>
+            <h1 className="font-display text-3xl font-semibold leading-tight text-white">PiHomeHub</h1>
+          </div>
+        </div>
+        <p className="mt-4 break-words text-sm leading-6 text-muted">Single-admin access for your private home dashboard.</p>
+        <label className="field-label mt-6">
           Username
-          <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         </label>
-        <label className="mt-4 block text-sm font-semibold text-ink">
+        <label className="field-label mt-4">
           Password
-          <input className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input className="input-field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         </label>
-        {error ? <p className="mt-4 text-sm text-red-700">{error}</p> : null}
-        <button className="mt-6 w-full rounded-full bg-ink px-4 py-3 font-semibold text-white" disabled={submitting}>
-          {submitting ? "Signing in…" : "Sign in"}
+        {error ? <p className="error-callout mt-4">{error}</p> : null}
+        <button className="btn-primary mt-6 w-full" disabled={submitting}>
+          <LockKeyhole size={17} />
+          {submitting ? "Signing in..." : "Sign in"}
         </button>
       </form>
-    </div>
+    </main>
   );
 }

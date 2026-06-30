@@ -1,16 +1,21 @@
 export function Panel({
   title,
   children,
-  action
+  action,
+  description
 }: {
   title: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  description?: string;
 }) {
   return (
-    <section className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-panel backdrop-blur">
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="font-display text-xl text-ink">{title}</h2>
+    <section className="app-panel">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="font-display text-xl font-semibold leading-tight text-white">{title}</h2>
+          {description ? <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{description}</p> : null}
+        </div>
         {action}
       </div>
       {children}

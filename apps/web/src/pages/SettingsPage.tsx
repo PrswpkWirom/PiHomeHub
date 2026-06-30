@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
+import { CheckCircle2, KeyRound, RefreshCw, Save, ServerCog, Wifi } from "lucide-react";
 
 import { api } from "../api/client";
 import { Panel } from "../components/Panel";
+import { StatusPill } from "../components/StatusPill";
 import { invalidateCache, setCachedData } from "../hooks/useFetch";
 import type { TailscaleConnectionResult, TailscaleDevice, TailscaleStatus } from "../types/api";
 
@@ -73,29 +75,49 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Panel title="Tailscale">
+    <div className="page-stack">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <h1 className="page-title">Private access settings</h1>
+          <p className="page-copy">Manage Tailscale connection details and keep deployment guidance close to the controls.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+      <Panel title="Tailscale" description="Token values remain write-only in the UI after saving.">
         <form className="space-y-4" onSubmit={save}>
-          <div className="grid gap-3 rounded-2xl bg-clay p-4 text-sm text-slate-700">
-            <p>Status: {status?.connected ? "Connected" : "Not connected"}</p>
-            <p>Token: {status?.token_saved ? "Token saved" : "No token configured"}</p>
-            <p>Last sync: {status?.last_sync_at ?? "Never"}</p>
-            {status?.last_sync_error ? <p className="text-red-700">Last error: {status.last_sync_error}</p> : null}
+          <div className="grid gap-3 rounded-2xl border border-line bg-deep/70 p-4 text-sm text-muted sm:grid-cols-3">
+            <div className="rounded-xl bg-card/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Status</p>
+              <div className="mt-2">
+                {status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : <span className="text-muted">Loading...</span>}
+              </div>
+            </div>
+            <div className="rounded-xl bg-card/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Token</p>
+              <p className="mt-2 font-semibold text-white">{status?.token_saved ? "Token saved" : "No token configured"}</p>
+            </div>
+            <div className="rounded-xl bg-card/70 p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Last sync</p>
+              <p className="mt-2 font-mono text-sm tabular-nums text-white">{status?.last_sync_at ?? "Never"}</p>
+            </div>
           </div>
-          <label className="block text-sm font-semibold text-ink">
+          {status?.last_sync_error ? <p className="error-callout">Last error: {status.last_sync_error}</p> : null}
+          <label className="field-label">
             API token
             <input
-              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
+              className="input-field"
               placeholder={status?.token_saved ? "Token saved. Enter a new token to replace it." : "tskey-..."}
               type="password"
               value={apiToken}
               onChange={(event) => setApiToken(event.target.value)}
             />
           </label>
-          <label className="block text-sm font-semibold text-ink">
+          <label className="field-label">
             Tailnet
             <input
-              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3"
+              className="input-field"
               placeholder="example.com or -"
               value={tailnet}
               onChange={(event) => setTailnet(event.target.value)}
@@ -103,25 +125,44 @@ export function SettingsPage() {
             />
           </label>
           <div className="flex flex-wrap gap-3">
-            <button className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white" disabled={busy}>
+            <button className="btn-primary" disabled={busy}>
+              <Save size={16} />
               Save
             </button>
-            <button className="rounded-full border border-ink px-5 py-3 text-sm font-semibold text-ink" disabled={busy} type="button" onClick={() => void testConnection()}>
-              Test Connection
+            <button className="btn-secondary" disabled={busy} type="button" onClick={() => void testConnection()}>
+              <Wifi size={16} />
+              Test connection
             </button>
-            <button className="rounded-full border border-ink px-5 py-3 text-sm font-semibold text-ink" disabled={busy} type="button" onClick={() => void syncDevices()}>
-              Sync Devices Now
+            <button className="btn-secondary" disabled={busy} type="button" onClick={() => void syncDevices()}>
+              <RefreshCw className={busy ? "animate-spin" : ""} size={16} />
+              Sync devices now
             </button>
           </div>
-          {message ? <p className="text-sm text-slate-700">{message}</p> : null}
+          {message ? <p className="info-callout">{message}</p> : null}
         </form>
       </Panel>
-      <Panel title="Access Model">
-        <p className="text-slate-700">PiHomeHub uses a single admin account and private access through LAN or Tailscale. Tailscale tokens are write-only in the UI and are never displayed after saving.</p>
+
+      <div className="grid gap-5">
+      <Panel title="Access model">
+        <div className="raised-card flex gap-3">
+          <KeyRound className="mt-0.5 shrink-0 text-accent" size={20} />
+          <p className="text-sm leading-6 text-muted">PiHomeHub uses a single admin account and private access through LAN or Tailscale. Tailscale tokens are write-only in the UI and are never displayed after saving.</p>
+        </div>
       </Panel>
-      <Panel title="Deployment Notes">
-        <p className="text-slate-700">Use Caddy or a similar reverse proxy for HTTPS termination. Keep the dashboard off the public internet.</p>
+      <Panel title="Deployment notes">
+        <div className="space-y-3">
+          <div className="raised-card flex gap-3">
+            <ServerCog className="mt-0.5 shrink-0 text-accent" size={20} />
+            <p className="text-sm leading-6 text-muted">Use Caddy or a similar reverse proxy for HTTPS termination. Keep the dashboard off the public internet.</p>
+          </div>
+          <div className="raised-card flex gap-3">
+            <CheckCircle2 className="mt-0.5 shrink-0 text-success" size={20} />
+            <p className="text-sm leading-6 text-muted">LAN and Tailscale access should stay authenticated and limited to trusted devices.</p>
+          </div>
+        </div>
       </Panel>
+      </div>
+      </div>
     </div>
   );
 }
