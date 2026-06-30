@@ -97,6 +97,18 @@ export type ServiceStatus = {
   detail: string;
 };
 
+export type ServiceCapability = {
+  slug: string;
+  actions: string[];
+};
+
+export type ServiceActionResult = {
+  slug: string;
+  action: string;
+  ok: boolean;
+  message: string;
+};
+
 export type ServiceLink = {
   id: number;
   name: string;

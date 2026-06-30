@@ -8,6 +8,18 @@ class ServiceStatusRead(BaseModel):
     detail: str
 
 
+class ServiceCapabilityRead(BaseModel):
+    slug: str
+    actions: list[str]
+
+
+class ServiceActionResult(BaseModel):
+    slug: str
+    action: str
+    ok: bool
+    message: str
+
+
 class ServiceLinkRead(BaseModel):
     id: int
     name: str

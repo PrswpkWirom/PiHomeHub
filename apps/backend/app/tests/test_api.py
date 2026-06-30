@@ -141,6 +141,123 @@ async def test_service_status_missing_container(app):
 
 
 @pytest.mark.anyio
+async def test_service_action_requires_auth(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        response = await client.post("/api/services/adguard-home/actions/start")
+        assert response.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_service_action_rejects_unknown_service_and_action(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        unknown_service = await client.post("/api/services/backend/actions/stop")
+        assert unknown_service.status_code == 404
+
+        unknown_action = await client.post("/api/services/adguard-home/actions/down")
+        assert unknown_action.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_service_capabilities_include_all_optional_services(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        response = await client.get("/api/services/capabilities")
+
+    assert response.status_code == 200
+    capabilities = {item["slug"]: item["actions"] for item in response.json()}
+    assert set(capabilities) == {"adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden"}
+    assert all(actions == ["build", "start", "stop", "restart"] for actions in capabilities.values())
+
+
+@pytest.mark.anyio
+async def test_service_action_runs_allowlisted_compose_command(app):
+    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 0
+            mocked_run.return_value.stdout = "started"
+            mocked_run.return_value.stderr = ""
+            response = await client.post("/api/services/adguard-home/actions/start")
+
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert response.json()["slug"] == "adguard-home"
+        mocked_run.assert_called_once()
+        assert mocked_run.call_args.args[0] == [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "--project-directory",
+            str(COMPOSE_PROJECT_DIR),
+            "--profile",
+            COMPOSE_PROFILE,
+            "up",
+            "-d",
+            "adguard-home",
+        ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("slug", ["gitea", "uptime-kuma", "mosquitto"])
+async def test_service_action_runs_new_optional_service_compose_command(app, slug):
+    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 0
+            mocked_run.return_value.stdout = "started"
+            mocked_run.return_value.stderr = ""
+            response = await client.post(f"/api/services/{slug}/actions/start")
+
+        assert response.status_code == 200
+        assert response.json()["slug"] == slug
+        mocked_run.assert_called_once()
+        assert mocked_run.call_args.args[0] == [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "--project-directory",
+            str(COMPOSE_PROJECT_DIR),
+            "--profile",
+            COMPOSE_PROFILE,
+            "up",
+            "-d",
+            slug,
+        ]
+
+
+@pytest.mark.anyio
+async def test_service_action_returns_safe_docker_failure(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 1
+            mocked_run.return_value.stdout = ""
+            mocked_run.return_value.stderr = "line one\nunable to pull image"
+            response = await client.post("/api/services/vaultwarden/actions/build")
+
+        assert response.status_code == 502
+        assert "unable to pull image" in response.text
+        assert "line one" not in response.text
+
+
+@pytest.mark.anyio
 async def test_wol_requires_supported_device(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})

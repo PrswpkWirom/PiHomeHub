@@ -5,10 +5,15 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../apps/backend/.env
+    environment:
+      PIHOMEHUB_COMPOSE_FILE: /workspace/infra/docker-compose.yml
+      PIHOMEHUB_COMPOSE_PROJECT_DIRECTORY: /workspace/infra
     ports:
       - "8000:8000"
     volumes:
       - ../apps/backend:/app
+      - ..:/workspace:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   web:
     build:
@@ -31,3 +36,76 @@ services:
     depends_on:
       - web
       - backend
+
+  adguard-home:
+    image: adguard/adguardhome:latest
+    container_name: adguard-home
+    profiles:
+      - home-services
+    ports:
+      - "3001:3000"
+      - "53:53/tcp"
+      - "53:53/udp"
+    volumes:
+      - adguard-work:/opt/adguardhome/work
+      - adguard-conf:/opt/adguardhome/conf
+    restart: unless-stopped
+
+  gitea:
+    image: docker.gitea.com/gitea:1
+    container_name: gitea
+    profiles:
+      - home-services
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+    ports:
+      - "3002:3000"
+      - "2222:22"
+    volumes:
+      - gitea-data:/data
+    restart: unless-stopped
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:2
+    container_name: uptime-kuma
+    profiles:
+      - home-services
+    ports:
+      - "3003:3001"
+    volumes:
+      - uptime-kuma-data:/app/data
+    restart: unless-stopped
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    profiles:
+      - home-services
+    ports:
+      - "3004:80"
+    volumes:
+      - vaultwarden-data:/data
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    profiles:
+      - home-services
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    restart: unless-stopped
+
+volumes:
+  adguard-work:
+  adguard-conf:
+  gitea-data:
+  uptime-kuma-data:
+  vaultwarden-data:
+  mosquitto-data:
+  mosquitto-log:

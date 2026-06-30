@@ -1,9 +1,11 @@
 import { ExternalLink, Info, Server } from "lucide-react";
+import { useState } from "react";
 
+import { api } from "../api/client";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
-import type { ServiceLink, ServiceStatus } from "../types/api";
+import type { ServiceActionResult, ServiceCapability, ServiceLink, ServiceStatus } from "../types/api";
 
 type ServiceInfo = {
   summary: string;
@@ -57,9 +59,45 @@ const SERVICE_INFO: Record<string, ServiceInfo> = {
   }
 };
 
+function actionsForStatus(service: ServiceStatus, capability: ServiceCapability | undefined) {
+  if (!capability) {
+    return [];
+  }
+  if (service.status === "missing") {
+    return ["build", "start"].filter((action) => capability.actions.includes(action));
+  }
+  if (service.status === "running") {
+    return ["stop", "restart"].filter((action) => capability.actions.includes(action));
+  }
+  return ["start", "restart"].filter((action) => capability.actions.includes(action));
+}
+
+function actionLabel(action: string) {
+  return action.charAt(0).toUpperCase() + action.slice(1);
+}
+
 export function ServicesPage() {
   const statuses = useFetch<ServiceStatus[]>("/api/services/status");
+  const capabilities = useFetch<ServiceCapability[]>("/api/services/capabilities");
   const links = useFetch<ServiceLink[]>("/api/services/links");
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const capabilitiesBySlug = new Map((capabilities.data ?? []).map((capability) => [capability.slug, capability]));
+
+  const runServiceAction = async (service: ServiceStatus, action: string) => {
+    const key = `${service.slug}:${action}`;
+    setRunningAction(key);
+    setActionMessage(null);
+    try {
+      const result = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${action}`);
+      setActionMessage(`${service.name}: ${result.message}`);
+      await statuses.refetch();
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Service action failed.");
+    } finally {
+      setRunningAction(null);
+    }
+  };
 
   return (
     <div className="page-stack">
@@ -83,6 +121,7 @@ export function ServicesPage() {
         <div className="space-y-4">
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
+            const actions = actionsForStatus(service, capabilitiesBySlug.get(service.slug));
 
             return (
               <article key={service.slug} className="raised-card">
@@ -96,6 +135,24 @@ export function ServicesPage() {
                   </div>
                   <StatusPill status={service.status} />
                 </div>
+                {actions.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-white/70 pt-3">
+                    {actions.map((action) => {
+                      const key = `${service.slug}:${action}`;
+                      return (
+                        <button
+                          key={action}
+                          className="rounded-full border border-ink px-3 py-1 text-sm font-semibold text-ink disabled:opacity-40"
+                          disabled={runningAction !== null}
+                          type="button"
+                          onClick={() => void runServiceAction(service, action)}
+                        >
+                          {runningAction === key ? "Working..." : actionLabel(action)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 {info ? (
                   <details className="group mt-4 border-t border-line pt-4">
                     <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-accent outline-none transition hover:text-white focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-accent/40">
@@ -127,6 +184,7 @@ export function ServicesPage() {
             );
           })}
           {statuses.data?.length === 0 ? <p className="empty-state">No monitored services are configured yet.</p> : null}
+          {actionMessage ? <p className="text-sm text-slate-700">{actionMessage}</p> : null}
         </div>
       </Panel>
       <Panel title="Dashboards" description="Open linked service dashboards in a new browser context.">

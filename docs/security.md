@@ -10,12 +10,15 @@ PiHomeHub v0.1 is designed for LAN or Tailscale access only.
 - Wake-on-LAN restricted to authenticated admin access
 - Tailscale API token is stored encrypted by the backend and is never returned to the frontend
 - Tailscale token UI is write-only: users can save or replace a token, but cannot view the stored value
+- Service lifecycle controls are restricted to allowlisted home-service containers only
+- Service lifecycle controls use fixed Docker Compose arguments; users cannot submit shell commands, compose paths, or arbitrary service names
 - Reverse-proxy TLS termination expected in front of the app for production access
+- Docker socket access gives the backend high host privileges and is intended only for trusted LAN or Tailscale deployments
 
 ## Non-Goals
 
 - No public dashboard exposure
 - No shell execution
-- No arbitrary service start/stop/restart actions
+- No arbitrary service start/stop/restart actions outside the backend allowlist
 - No secrets import from Vaultwarden
 - No interactive Tailscale OAuth/device login in the first Tailscale integration
