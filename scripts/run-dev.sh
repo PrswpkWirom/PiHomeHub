@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="${PIHOMEHUB_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${PIHOMEHUB_FRONTEND_PORT:-5173}"
 HOST="${PIHOMEHUB_DEV_HOST:-0.0.0.0}"
+BACKEND_URL="${PIHOMEHUB_BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
 
 cd "$ROOT_DIR"
 
@@ -87,7 +88,7 @@ echo "Starting PiHomeHub backend on http://${HOST}:${BACKEND_PORT}"
 BACKEND_PID=$!
 
 echo "Starting PiHomeHub frontend on http://${HOST}:${FRONTEND_PORT}"
-npm --prefix apps/web run dev -- \
+PIHOMEHUB_BACKEND_URL="$BACKEND_URL" npm --prefix apps/web run dev -- \
   --host "$HOST" \
   --port "$FRONTEND_PORT" \
   --strictPort &
