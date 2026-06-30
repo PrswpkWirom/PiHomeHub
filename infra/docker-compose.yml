@@ -5,10 +5,14 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ../apps/backend/.env
+    environment:
+      PIHOMEHUB_COMPOSE_FILE: /workspace/infra/docker-compose.yml
+      PIHOMEHUB_COMPOSE_PROJECT_DIRECTORY: /workspace/infra
     ports:
       - "8000:8000"
     volumes:
       - ../apps/backend:/app
+      - ..:/workspace:ro
       - /var/run/docker.sock:/var/run/docker.sock
 
   web:

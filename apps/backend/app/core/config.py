@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "change-me-now"
     monitored_services: str = "adguard-home,gitea,uptime-kuma,vaultwarden,mosquitto"
+    compose_file: str | None = None
+    compose_project_directory: str | None = None
     allowed_origins: str = "http://localhost:5173"
     service_links_json: str = "[]"
     known_devices_json: str = "[]"

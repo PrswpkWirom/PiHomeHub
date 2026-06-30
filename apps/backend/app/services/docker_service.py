@@ -1,13 +1,35 @@
 from __future__ import annotations
 
+from pathlib import Path
 import subprocess
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.schemas.services import ServiceStatusRead
+from app.schemas.services import ServiceActionResult, ServiceCapabilityRead, ServiceStatusRead
 
 settings = get_settings()
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_COMPOSE_FILE = REPO_ROOT / "infra" / "docker-compose.yml"
+DEFAULT_COMPOSE_PROJECT_DIR = REPO_ROOT / "infra"
+COMPOSE_FILE = Path(settings.compose_file).resolve() if getattr(settings, "compose_file", None) else DEFAULT_COMPOSE_FILE
+COMPOSE_PROJECT_DIR = (
+    Path(settings.compose_project_directory).resolve()
+    if getattr(settings, "compose_project_directory", None)
+    else DEFAULT_COMPOSE_PROJECT_DIR
+)
+COMPOSE_PROFILE = "home-services"
+CONTROLLABLE_SERVICES: dict[str, tuple[str, ...]] = {
+    "adguard-home": ("build", "start", "stop", "restart"),
+    "vaultwarden": ("build", "start", "stop", "restart"),
+}
+ACTION_MESSAGES = {
+    "build": "Service image prepared.",
+    "start": "Service start requested.",
+    "stop": "Service stop requested.",
+    "restart": "Service restart requested.",
+}
 
 
 def _docker_rows() -> dict[str, tuple[str, str]]:
@@ -44,3 +66,68 @@ def get_service_statuses(_: Session) -> list[ServiceStatusRead]:
             )
         )
     return statuses
+
+
+def get_service_capabilities(_: Session) -> list[ServiceCapabilityRead]:
+    return [
+        ServiceCapabilityRead(slug=slug, actions=list(actions))
+        for slug, actions in sorted(CONTROLLABLE_SERVICES.items())
+    ]
+
+
+def _compose_base_command() -> list[str]:
+    return [
+        "docker",
+        "compose",
+        "-f",
+        str(COMPOSE_FILE),
+        "--project-directory",
+        str(COMPOSE_PROJECT_DIR),
+    ]
+
+
+def _compose_command(slug: str, action: str) -> list[str]:
+    base = _compose_base_command()
+    if action == "build":
+        return base + ["--profile", COMPOSE_PROFILE, "pull", slug]
+    if action == "start":
+        return base + ["--profile", COMPOSE_PROFILE, "up", "-d", slug]
+    if action == "stop":
+        return base + ["stop", slug]
+    if action == "restart":
+        return base + ["--profile", COMPOSE_PROFILE, "up", "-d", "--build", "--force-recreate", slug]
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
+
+
+def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResult:
+    allowed_actions = CONTROLLABLE_SERVICES.get(slug)
+    if allowed_actions is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
+    if action not in allowed_actions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
+
+    try:
+        result = subprocess.run(
+            _compose_command(slug, action),
+            cwd=COMPOSE_PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=120,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Docker CLI is not available") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Docker action timed out") from exc
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "Docker action failed").strip().splitlines()
+        message = detail[-1] if detail else "Docker action failed"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message[:300])
+
+    return ServiceActionResult(
+        slug=slug,
+        action=action,
+        ok=True,
+        message=ACTION_MESSAGES[action],
+    )
