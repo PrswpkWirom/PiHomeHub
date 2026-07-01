@@ -7,6 +7,7 @@ import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
 import { Link } from "react-router-dom";
 import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TailscaleDevice, TaskItem } from "../types/api";
+import { resolveServiceLinkUrl } from "../utils/serviceLinks";
 
 function Metric({ label, value, detail, icon: Icon }: { label: string; value: string; detail?: string; icon: typeof Cpu }) {
   return (
@@ -203,15 +204,18 @@ export function DashboardPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             {links.loading ? <div className="skeleton h-28 sm:col-span-2" /> : null}
             {links.error ? <p className="error-callout sm:col-span-2">{links.error}</p> : null}
-            {links.data?.map((link) => (
-              <a key={link.slug} href={link.url} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-white">{link.name}</p>
-                  <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
-                </div>
-                <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? link.url}</p>
-              </a>
-            ))}
+            {links.data?.map((link) => {
+              const resolvedUrl = resolveServiceLinkUrl(link.url);
+              return (
+                <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-white">{link.name}</p>
+                    <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? resolvedUrl}</p>
+                </a>
+              );
+            })}
             {links.data?.length === 0 ? <p className="empty-state sm:col-span-2">No dashboard links configured.</p> : null}
           </div>
         </Panel>

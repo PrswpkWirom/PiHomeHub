@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import subprocess
 
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.schemas.services import ServiceActionResult, ServiceCapabilityRead, ServiceStatusRead
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 COMPOSE_PROFILE = "home-services"
 
@@ -123,6 +125,22 @@ def _compose_command(slug: str, action: str) -> list[str]:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
 
 
+def _docker_failure_message(stdout: str, stderr: str) -> str:
+    lines = [line.strip() for line in (stderr or stdout or "").splitlines() if line.strip()]
+    ignored_suffixes = (
+        "https://docs.docker.com/go/guides/",
+        "See 'docker --help'",
+        "See 'docker --help'.",
+    )
+
+    for line in reversed(lines):
+        if any(line.endswith(suffix) for suffix in ignored_suffixes):
+            continue
+        return line[:300]
+
+    return "Docker action failed"
+
+
 def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResult:
     allowed_actions = CONTROLLABLE_SERVICES.get(slug)
     if allowed_actions is None:
@@ -145,9 +163,18 @@ def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResul
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Docker action timed out") from exc
 
     if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "Docker action failed").strip().splitlines()
-        message = detail[-1] if detail else "Docker action failed"
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message[:300])
+        logger.warning(
+            "Docker action failed for %s:%s with exit code %s. stderr=%r stdout=%r",
+            slug,
+            action,
+            result.returncode,
+            result.stderr,
+            result.stdout,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_docker_failure_message(result.stdout, result.stderr),
+        )
 
     return ServiceActionResult(
         slug=slug,

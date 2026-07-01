@@ -3,9 +3,10 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker-cli \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-cli docker-compose \
     && command -v docker \
     && docker --version \
+    && docker compose version \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

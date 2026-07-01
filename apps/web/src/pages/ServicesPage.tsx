@@ -6,6 +6,7 @@ import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
 import type { ServiceActionResult, ServiceCapability, ServiceLink, ServiceStatus } from "../types/api";
+import { resolveServiceLinkUrl } from "../utils/serviceLinks";
 
 type ServiceInfo = {
   summary: string;
@@ -14,6 +15,12 @@ type ServiceInfo = {
     label: string;
     url: string;
   }[];
+};
+
+type ActionMessage = {
+  kind: "success" | "error";
+  serviceSlug: string;
+  text: string;
 };
 
 const SERVICE_INFO: Record<string, ServiceInfo> = {
@@ -81,7 +88,7 @@ export function ServicesPage() {
   const capabilities = useFetch<ServiceCapability[]>("/api/services/capabilities");
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const [runningAction, setRunningAction] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
   const capabilitiesBySlug = new Map((capabilities.data ?? []).map((capability) => [capability.slug, capability]));
 
   const runServiceAction = async (service: ServiceStatus, action: string) => {
@@ -90,10 +97,14 @@ export function ServicesPage() {
     setActionMessage(null);
     try {
       const result = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${action}`);
-      setActionMessage(`${service.name}: ${result.message}`);
+      setActionMessage({ kind: "success", serviceSlug: service.slug, text: result.message });
       await statuses.refetch();
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : "Service action failed.");
+      setActionMessage({
+        kind: "error",
+        serviceSlug: service.slug,
+        text: error instanceof Error ? error.message : "Service action failed."
+      });
     } finally {
       setRunningAction(null);
     }
@@ -144,6 +155,7 @@ export function ServicesPage() {
                           key={action}
                           className="rounded-full border border-ink px-3 py-1 text-sm font-semibold text-ink disabled:opacity-40"
                           disabled={runningAction !== null}
+                          aria-busy={runningAction === key}
                           type="button"
                           onClick={() => void runServiceAction(service, action)}
                         >
@@ -152,6 +164,11 @@ export function ServicesPage() {
                       );
                     })}
                   </div>
+                ) : null}
+                {actionMessage?.serviceSlug === service.slug ? (
+                  <p className={`mt-3 ${actionMessage.kind === "error" ? "error-callout" : "info-callout"}`}>
+                    {actionMessage.text}
+                  </p>
                 ) : null}
                 {info ? (
                   <details className="group mt-4 border-t border-line pt-4">
@@ -184,22 +201,24 @@ export function ServicesPage() {
             );
           })}
           {statuses.data?.length === 0 ? <p className="empty-state">No monitored services are configured yet.</p> : null}
-          {actionMessage ? <p className="text-sm text-slate-700">{actionMessage}</p> : null}
         </div>
       </Panel>
       <Panel title="Dashboards" description="Open linked service dashboards in a new browser context.">
         {links.loading ? <div className="skeleton h-28" /> : null}
         {links.error ? <p className="error-callout">{links.error}</p> : null}
         <div className="grid gap-4">
-          {links.data?.map((link) => (
-            <a key={link.slug} href={link.url} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
-              <div className="flex items-center justify-between gap-3">
-                <p className="font-semibold text-white">{link.name}</p>
-                <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
-              </div>
-              <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? link.url}</p>
-            </a>
-          ))}
+          {links.data?.map((link) => {
+            const resolvedUrl = resolveServiceLinkUrl(link.url);
+            return (
+              <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-white">{link.name}</p>
+                  <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
+                </div>
+                <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? resolvedUrl}</p>
+              </a>
+            );
+          })}
           {links.data?.length === 0 ? <p className="empty-state">No dashboard links are available.</p> : null}
         </div>
       </Panel>

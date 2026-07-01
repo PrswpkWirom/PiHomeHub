@@ -277,6 +277,27 @@ async def test_service_action_returns_safe_docker_failure(app):
 
 
 @pytest.mark.anyio
+async def test_service_action_returns_meaningful_docker_cli_error(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 1
+            mocked_run.return_value.stdout = ""
+            mocked_run.return_value.stderr = (
+                "docker: 'compose' is not a docker command.\n"
+                "See 'docker --help'\n"
+                "For more help on how to use Docker, head to https://docs.docker.com/go/guides/"
+            )
+            response = await client.post("/api/services/adguard-home/actions/start")
+
+        assert response.status_code == 502
+        assert "docker: 'compose' is not a docker command" in response.text
+        assert "docs.docker.com" not in response.text
+
+
+@pytest.mark.anyio
 async def test_wol_requires_supported_device(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
