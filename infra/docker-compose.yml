@@ -25,6 +25,7 @@ services:
       - "5173:5173"
     volumes:
       - ../apps/web:/app
+      - web-node-modules:/app/node_modules
     depends_on:
       - backend
 
@@ -111,3 +112,4 @@ volumes:
   vaultwarden-data:
   mosquitto-data:
   mosquitto-log:
+  web-node-modules:
