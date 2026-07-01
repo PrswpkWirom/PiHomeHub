@@ -174,6 +174,25 @@ async def test_service_capabilities_include_all_optional_services(app):
     assert all(actions == ["build", "start", "stop", "restart"] for actions in capabilities.values())
 
 
+def test_default_compose_paths_support_docker_container_layout(tmp_path):
+    from app.services.docker_service import _default_compose_paths
+
+    module_file = tmp_path / "app" / "app" / "services" / "docker_service.py"
+    module_file.parent.mkdir(parents=True)
+    module_file.write_text("")
+
+    workspace = tmp_path / "workspace"
+    infra = workspace / "infra"
+    infra.mkdir(parents=True)
+    compose_file = infra / "docker-compose.yml"
+    compose_file.write_text("services: {}\n")
+
+    resolved_compose_file, resolved_project_dir = _default_compose_paths(module_file, workspace)
+
+    assert resolved_compose_file == compose_file.resolve()
+    assert resolved_project_dir == infra.resolve()
+
+
 @pytest.mark.anyio
 async def test_service_action_runs_allowlisted_compose_command(app):
     from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR

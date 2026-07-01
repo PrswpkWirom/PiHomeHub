@@ -10,16 +10,37 @@ from app.core.config import get_settings
 from app.schemas.services import ServiceActionResult, ServiceCapabilityRead, ServiceStatusRead
 
 settings = get_settings()
-REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_COMPOSE_FILE = REPO_ROOT / "infra" / "docker-compose.yml"
-DEFAULT_COMPOSE_PROJECT_DIR = REPO_ROOT / "infra"
+COMPOSE_PROFILE = "home-services"
+
+
+def _find_repo_root(start: Path, workspace_root: Path = Path("/workspace")) -> Path:
+    start_path = start.resolve()
+    search_roots = [start_path if start_path.is_dir() else start_path.parent, workspace_root, Path.cwd().resolve()]
+
+    for root in search_roots:
+        for candidate in (root, *root.parents):
+            if (candidate / "infra" / "docker-compose.yml").exists():
+                return candidate.resolve()
+
+    return search_roots[0]
+
+
+def _default_compose_paths(
+    module_file: Path = Path(__file__),
+    workspace_root: Path = Path("/workspace"),
+) -> tuple[Path, Path]:
+    repo_root = _find_repo_root(module_file, workspace_root)
+    project_dir = repo_root / "infra"
+    return project_dir / "docker-compose.yml", project_dir
+
+
+DEFAULT_COMPOSE_FILE, DEFAULT_COMPOSE_PROJECT_DIR = _default_compose_paths()
 COMPOSE_FILE = Path(settings.compose_file).resolve() if getattr(settings, "compose_file", None) else DEFAULT_COMPOSE_FILE
 COMPOSE_PROJECT_DIR = (
     Path(settings.compose_project_directory).resolve()
     if getattr(settings, "compose_project_directory", None)
     else DEFAULT_COMPOSE_PROJECT_DIR
 )
-COMPOSE_PROFILE = "home-services"
 CONTROLLABLE_SERVICES: dict[str, tuple[str, ...]] = {
     "adguard-home": ("build", "start", "stop", "restart"),
     "gitea": ("build", "start", "stop", "restart"),
