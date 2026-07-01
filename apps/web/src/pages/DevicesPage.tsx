@@ -83,6 +83,7 @@ export function DevicesPage() {
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
   const [settingsForm, setSettingsForm] = useState<TailscaleDeviceSettingsWrite>(emptyTailscaleSettings);
   const [message, setMessage] = useState<string | null>(null);
+  const [manualMessage, setManualMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
   const setTailscaleData = tailscale.setData;
@@ -130,21 +131,29 @@ export function DevicesPage() {
   const saveManual = async (event: FormEvent) => {
     event.preventDefault();
     const payload = cleanDevice(manualForm);
-    if (editingManualId) {
-      const updated = await api.patch<DeviceSummary>(`/api/devices/${editingManualId}`, payload);
-      manual.setData((current) => (current ?? []).map((device) => (device.id === editingManualId ? updated : device)));
-    } else {
-      const created = await api.post<DeviceSummary>("/api/devices", payload);
-      manual.setData((current) => [...(current ?? []), created]);
+    setManualMessage(null);
+    try {
+      if (editingManualId) {
+        const updated = await api.patch<DeviceSummary>(`/api/devices/${editingManualId}`, payload);
+        manual.setData((current) => (current ?? []).map((device) => (device.id === editingManualId ? updated : device)));
+        setManualMessage({ kind: "success", text: "Manual device updated." });
+      } else {
+        const created = await api.post<DeviceSummary>("/api/devices", payload);
+        manual.setData((current) => [...(current ?? []), created]);
+        setManualMessage({ kind: "success", text: "Manual device added." });
+      }
+      setManualForm(emptyManualDevice);
+      setEditingManualId(null);
+    } catch (error) {
+      setManualMessage({ kind: "error", text: error instanceof Error ? error.message : "Manual device save failed." });
     }
-    setManualForm(emptyManualDevice);
-    setEditingManualId(null);
   };
 
   const editManual = (device: DeviceSummary) => {
     if (!device.id) {
       return;
     }
+    setManualMessage(null);
     setEditingManualId(device.id);
     setManualForm({
       name: device.name,
@@ -158,8 +167,14 @@ export function DevicesPage() {
   };
 
   const deleteManual = async (deviceId: number) => {
-    await api.delete(`/api/devices/${deviceId}`);
-    manual.setData((current) => (current ?? []).filter((device) => device.id !== deviceId));
+    setManualMessage(null);
+    try {
+      await api.delete(`/api/devices/${deviceId}`);
+      manual.setData((current) => (current ?? []).filter((device) => device.id !== deviceId));
+      setManualMessage({ kind: "success", text: "Manual device deleted." });
+    } catch (error) {
+      setManualMessage({ kind: "error", text: error instanceof Error ? error.message : "Manual device delete failed." });
+    }
   };
 
   const openTailscaleSettings = (device: TailscaleDevice) => {
@@ -344,13 +359,18 @@ export function DevicesPage() {
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary">{editingManualId ? "Save device" : "Add device"}</button>
             {editingManualId ? (
-              <button className="btn-secondary" type="button" onClick={() => { setEditingManualId(null); setManualForm(emptyManualDevice); }}>
+              <button className="btn-secondary" type="button" onClick={() => { setEditingManualId(null); setManualForm(emptyManualDevice); setManualMessage(null); }}>
                 <X size={16} />
                 Cancel
               </button>
             ) : null}
           </div>
         </form>
+        {manualMessage ? (
+          <p className={manualMessage.kind === "error" ? "error-callout mb-4" : "info-callout mb-4"}>
+            {manualMessage.text}
+          </p>
+        ) : null}
         <div className="space-y-4">
           {manual.data?.map((device) => (
             <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr] md:items-center">

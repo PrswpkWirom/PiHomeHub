@@ -5,6 +5,7 @@ import platform
 import socket
 import subprocess
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -87,6 +88,10 @@ def get_devices(db: Session) -> list[DeviceSummary]:
 
 
 def create_device(db: Session, payload: DeviceCreate) -> Device:
+    existing = db.query(Device).filter(Device.name == payload.name).one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A manual device with this name already exists.")
+
     device = Device(**payload.model_dump())
     db.add(device)
     db.commit()
@@ -100,6 +105,11 @@ def update_device(db: Session, device_id: int, payload: DeviceUpdate) -> Device 
         return None
 
     original_name = device.name
+    if payload.name and payload.name != original_name:
+        existing = db.query(Device).filter(Device.name == payload.name).one_or_none()
+        if existing is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A manual device with this name already exists.")
+
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(device, key, value)
     if device.name != original_name:

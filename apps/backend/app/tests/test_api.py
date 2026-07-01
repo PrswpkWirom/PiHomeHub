@@ -127,6 +127,54 @@ async def test_renamed_seeded_manual_device_does_not_duplicate_original_seed(app
 
 
 @pytest.mark.anyio
+async def test_duplicate_manual_device_name_returns_conflict(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        response = await client.post(
+            "/api/devices",
+            json={
+                "name": "Gaming Desktop",
+                "device_type": "desktop",
+                "supports_wol": False,
+            },
+        )
+
+    assert response.status_code == 409
+    assert "already exists" in response.text
+
+
+@pytest.mark.anyio
+async def test_renaming_manual_device_to_existing_name_returns_conflict(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        created = await client.post(
+            "/api/devices",
+            json={
+                "name": "Spare Desktop",
+                "device_type": "desktop",
+                "supports_wol": False,
+            },
+        )
+        assert created.status_code == 201
+
+        response = await client.patch(
+            f"/api/devices/{created.json()['id']}",
+            json={
+                "name": "Gaming Desktop",
+                "device_type": "desktop",
+                "supports_wol": False,
+            },
+        )
+
+    assert response.status_code == 409
+    assert "already exists" in response.text
+
+
+@pytest.mark.anyio
 async def test_service_status_missing_container(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
