@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from app.models.tailscale_device import TailscaleDevice
 from app.models.user import AppSetting
 
+
 @pytest.mark.anyio
 async def test_login_and_me(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
@@ -59,6 +60,33 @@ async def test_task_crud(app):
 
         deleted = await client.delete(f"/api/tasks/{task_id}")
         assert deleted.status_code == 204
+
+
+@pytest.mark.anyio
+async def test_manual_devices_excludes_synthetic_self_host(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        listing = await client.get("/api/devices")
+
+    assert listing.status_code == 200
+    devices = listing.json()
+    assert all(device["id"] is not None for device in devices)
+    assert all(device["description"] != "Local PiHomeHub host" for device in devices)
+    assert [device["name"] for device in devices] == ["Gaming Desktop"]
+
+
+@pytest.mark.anyio
+async def test_manual_devices_empty_without_seeded_or_added_devices(app_without_known_devices):
+    async with AsyncClient(transport=ASGITransport(app=app_without_known_devices), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        listing = await client.get("/api/devices")
+
+    assert listing.status_code == 200
+    assert listing.json() == []
 
 
 @pytest.mark.anyio
