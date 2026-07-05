@@ -44,13 +44,16 @@ def _remember_deleted_known_device(db: Session, name: str | None) -> None:
 def _ping_host(host: str | None) -> str:
     if not host:
         return "unknown"
-    result = subprocess.run(
-        ["ping", "-c", "1", "-W", "1", host],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=3,
-    )
+    try:
+        result = subprocess.run(
+            ["ping", "-c", "1", "-W", "1", host],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return "unknown"
     return "online" if result.returncode == 0 else "offline"
 
 

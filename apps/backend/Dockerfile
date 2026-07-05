@@ -3,7 +3,7 @@ FROM python:3.12-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-cli docker-compose \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends docker-cli docker-compose iputils-ping \
     && command -v docker \
     && docker --version \
     && docker compose version \

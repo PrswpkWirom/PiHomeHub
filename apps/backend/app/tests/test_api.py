@@ -1,5 +1,6 @@
-from unittest.mock import AsyncMock, patch
+import subprocess
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -75,6 +76,29 @@ async def test_manual_devices_excludes_synthetic_self_host(app):
     assert all(device["id"] is not None for device in devices)
     assert all(device["description"] != "Local PiHomeHub host" for device in devices)
     assert [device["name"] for device in devices] == ["Gaming Desktop"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "status_probe_error",
+    [
+        FileNotFoundError("ping"),
+        subprocess.TimeoutExpired(cmd=["ping"], timeout=3),
+        OSError("status probe failed"),
+    ],
+)
+async def test_manual_devices_status_probe_failures_do_not_break_listing(app, status_probe_error):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.device_service.subprocess.run", side_effect=status_probe_error):
+            listing = await client.get("/api/devices")
+
+    assert listing.status_code == 200
+    devices = listing.json()
+    assert [device["name"] for device in devices] == ["Gaming Desktop"]
+    assert devices[0]["status"] == "unknown"
 
 
 @pytest.mark.anyio
