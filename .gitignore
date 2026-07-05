@@ -163,6 +163,42 @@ pihomehub.db-*
 apps/backend/pihomehub.db
 apps/backend/pihomehub.db-*
 
+# Infra service local data, generated config, and secrets
+infra/.env
+infra/.env.*
+infra/**/.env
+infra/**/*.env
+infra/**/data/
+infra/**/log/
+infra/**/logs/
+infra/**/work/
+infra/**/config/
+infra/**/conf/
+infra/**/secrets/
+infra/**/certs/
+infra/**/*.db
+infra/**/*.sqlite
+infra/**/*.sqlite3
+infra/**/*.pid
+infra/**/*.key
+infra/**/*.pem
+infra/**/*.crt
+infra/**/*.csr
+infra/**/*.p12
+infra/**/*.pfx
+
+# Current Docker Compose service bind-mount fallbacks
+infra/adguard-home/
+infra/adguard/
+infra/gitea/
+infra/uptime-kuma/
+infra/vaultwarden/
+infra/mosquitto/data/
+infra/mosquitto/log/
+infra/mosquitto/passwd
+infra/caddy/data/
+infra/caddy/config/
+
 # Frontend local dependencies and generated build metadata
 apps/web/node_modules/
 apps/web/dist/
