@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { api } from "../api/client";
+import { Field } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { useFetch } from "../hooks/useFetch";
 import type { TaskItem } from "../types/api";
@@ -42,8 +43,8 @@ export function PlannerPage() {
       <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
       <Panel title="Add task" description="Create short, operational reminders with optional due labels.">
         <form className="space-y-4" onSubmit={createTask}>
-          <input className="input-field" placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-          <input className="input-field" placeholder="Due label" value={dueLabel} onChange={(e) => setDueLabel(e.target.value)} />
+          <Field label="Task title" value={title} onChange={(e) => setTitle(e.target.value)} required />
+          <Field label="Due label" help="Optional short timing note, such as This weekend." value={dueLabel} onChange={(e) => setDueLabel(e.target.value)} />
           <button className="btn-primary">
             <Plus size={17} />
             Create task
@@ -62,7 +63,7 @@ export function PlannerPage() {
           {data?.map((task) => (
             <div key={task.id} className={`raised-card flex flex-wrap items-center justify-between gap-3 ${task.is_complete ? "opacity-70" : ""}`}>
               <div className="min-w-0">
-                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-white"}`}>{task.title}</p>
+                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-mist"}`}>{task.title}</p>
                 <p className="mt-1 text-sm text-muted">{task.due_label ?? "No due label"}</p>
               </div>
               <div className="flex flex-wrap gap-2">

@@ -3,13 +3,48 @@
 @tailwind utilities;
 
 :root {
-  font-family: Outfit, Aptos, "Segoe UI", sans-serif;
-  color: #f4f7fb;
-  background: #282934;
+  --color-app: 245 245 247;
+  --color-deep: 255 255 255;
+  --color-card: 250 250 252;
+  --color-raised: 255 255 255;
+  --color-line: 224 224 224;
+  --color-mist: 29 29 31;
+  --color-muted: 122 122 122;
+  --color-ink: 51 51 51;
+  --color-accent: 0 102 204;
+  --color-accent-focus: 0 113 227;
+  --color-accent-soft: 230 243 255;
+  --color-success: 38 134 73;
+  --color-warning: 161 98 7;
+  --color-danger: 190 18 60;
+  --shadow-panel: 0 18px 44px rgb(29 29 31 / 0.08);
+  --shadow-lift: 0 14px 34px rgb(29 29 31 / 0.1);
+  color: rgb(var(--color-mist));
+  background: rgb(var(--color-app));
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.dark {
+  --color-app: 24 24 26;
+  --color-deep: 31 31 33;
+  --color-card: 39 39 41;
+  --color-raised: 44 44 46;
+  --color-line: 68 68 72;
+  --color-mist: 245 245 247;
+  --color-muted: 188 188 193;
+  --color-ink: 255 255 255;
+  --color-accent: 41 151 255;
+  --color-accent-focus: 88 174 255;
+  --color-accent-soft: 12 45 78;
+  --color-success: 74 222 128;
+  --color-warning: 245 193 92;
+  --color-danger: 251 113 133;
+  --shadow-panel: 0 22px 56px rgb(0 0 0 / 0.22);
+  --shadow-lift: 0 18px 48px rgb(0 0 0 / 0.28);
 }
 
 html {
@@ -21,9 +56,8 @@ body {
   min-width: 320px;
   min-height: 100dvh;
   background:
-    radial-gradient(circle at 18% 0%, rgba(60, 199, 200, 0.14), transparent 28rem),
-    radial-gradient(circle at 100% 18%, rgba(148, 153, 173, 0.1), transparent 24rem),
-    #282934;
+    radial-gradient(circle at 14% -10%, rgb(var(--color-accent-soft) / 0.72), transparent 30rem),
+    linear-gradient(180deg, rgb(var(--color-app)), rgb(var(--color-app)));
 }
 
 * {
@@ -46,7 +80,8 @@ button,
 a,
 input,
 textarea,
-select {
+select,
+summary {
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -58,16 +93,27 @@ button:disabled {
   cursor: not-allowed;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 @layer base {
   ::selection {
-    background: rgba(60, 199, 200, 0.32);
-    color: #ffffff;
+    background: rgb(var(--color-accent) / 0.22);
+    color: rgb(var(--color-mist));
   }
 }
 
 @layer components {
   .skip-link {
-    @apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-accent focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-deep;
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-[10px] focus:bg-accent focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-white;
   }
 
   .page-stack {
@@ -75,63 +121,79 @@ button:disabled {
   }
 
   .page-header {
-    @apply flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between;
+    @apply grid gap-2;
   }
 
   .eyebrow {
-    @apply text-xs font-semibold uppercase tracking-[0.18em] text-accent;
+    @apply text-xs font-semibold text-accent;
   }
 
   .page-title {
-    @apply font-display text-3xl font-semibold leading-tight text-white sm:text-4xl;
+    @apply font-display text-[2rem] font-semibold leading-[1.08] tracking-[-0.01em] text-mist sm:text-[2.5rem];
     text-wrap: balance;
   }
 
   .page-copy {
-    @apply max-w-2xl text-sm leading-6 text-muted;
+    @apply max-w-2xl text-[0.94rem] leading-6 text-muted;
     text-wrap: pretty;
   }
 
   .app-panel {
-    @apply rounded-2xl border border-line bg-card p-5 shadow-panel backdrop-blur sm:p-6;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 22px 50px rgba(8, 10, 18, 0.24);
+    @apply rounded-[18px] border border-line bg-card p-5 shadow-panel backdrop-blur sm:p-6;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.46), var(--shadow-panel);
+  }
+
+  .dark .app-panel {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), var(--shadow-panel);
   }
 
   .raised-card {
-    @apply rounded-xl border border-line bg-raised p-4;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    @apply rounded-[14px] border border-line bg-raised p-4 transition duration-200;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.52);
+  }
+
+  .dark .raised-card {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
 
   .metric-card {
-    @apply rounded-xl border border-line bg-deep p-4 transition duration-200 hover:-translate-y-0.5 hover:border-accent;
+    @apply rounded-[16px] border border-line bg-raised p-4 transition duration-200 hover:-translate-y-0.5 hover:border-accent/55 hover:shadow-lift;
   }
 
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-deep transition duration-200 hover:-translate-y-0.5 hover:bg-[#52d6d6] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-0 disabled:translate-y-0 disabled:bg-muted disabled:text-deep disabled:opacity-60;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:bg-accent-focus focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus active:translate-y-px disabled:translate-y-0 disabled:bg-muted disabled:text-deep disabled:opacity-60;
   }
 
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-line bg-deep px-4 py-2 text-sm font-semibold text-mist transition duration-200 hover:-translate-y-0.5 hover:border-accent hover:bg-accent-soft hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-0 disabled:translate-y-0 disabled:opacity-45;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-line bg-raised px-4 py-2 text-sm font-semibold text-mist transition duration-200 hover:-translate-y-0.5 hover:border-accent/55 hover:bg-accent-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus active:translate-y-px disabled:translate-y-0 disabled:opacity-45;
   }
 
   .btn-danger {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-danger bg-deep px-4 py-2 text-sm font-semibold text-danger transition duration-200 hover:-translate-y-0.5 hover:bg-card focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger active:translate-y-0;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-danger/45 bg-raised px-4 py-2 text-sm font-semibold text-danger transition duration-200 hover:-translate-y-0.5 hover:bg-danger/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger active:translate-y-px disabled:translate-y-0 disabled:opacity-45;
+  }
+
+  .icon-button {
+    @apply inline-grid h-11 w-11 place-items-center rounded-full border border-line bg-raised text-mist transition duration-200 hover:-translate-y-0.5 hover:border-accent/55 hover:bg-accent-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus active:translate-y-px disabled:translate-y-0 disabled:opacity-45;
   }
 
   .field-label {
     @apply grid gap-2 text-sm font-semibold text-mist;
   }
 
+  .field-help {
+    @apply text-xs leading-5 text-muted;
+  }
+
   .input-field {
-    @apply min-h-12 w-full rounded-xl border border-line bg-deep px-4 py-3 text-sm text-white outline-none transition duration-200 placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent disabled:opacity-55;
+    @apply min-h-12 w-full rounded-[12px] border border-line bg-deep px-4 py-3 text-sm text-mist outline-none transition duration-200 placeholder:text-muted/75 focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-55;
   }
 
   .textarea-field {
-    @apply min-h-28 w-full rounded-xl border border-line bg-deep px-4 py-3 text-sm text-white outline-none transition duration-200 placeholder:text-muted focus:border-accent focus:ring-4 focus:ring-accent;
+    @apply min-h-28 w-full rounded-[12px] border border-line bg-deep px-4 py-3 text-sm text-mist outline-none transition duration-200 placeholder:text-muted/75 focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:opacity-55;
   }
 
   .check-row {
-    @apply flex min-h-12 items-center gap-3 rounded-xl border border-line bg-deep px-4 py-3 text-sm font-semibold text-mist;
+    @apply flex min-h-12 items-center gap-3 rounded-[12px] border border-line bg-deep px-4 py-3 text-sm font-semibold text-mist transition duration-200 focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/15;
   }
 
   .check-input {
@@ -139,22 +201,26 @@ button:disabled {
   }
 
   .skeleton {
-    @apply animate-pulse rounded-xl bg-white/[0.07];
+    @apply animate-pulse rounded-[14px] bg-muted/15;
   }
 
   .empty-state {
-    @apply rounded-xl border border-dashed border-line bg-deep p-5 text-sm leading-6 text-muted;
+    @apply rounded-[14px] border border-dashed border-line bg-deep p-5 text-sm leading-6 text-muted;
   }
 
   .error-callout {
-    @apply rounded-xl border border-danger bg-deep p-4 text-sm leading-6 text-danger;
+    @apply rounded-[14px] border border-danger/45 bg-danger/10 p-4 text-sm leading-6 text-danger;
   }
 
   .info-callout {
-    @apply rounded-xl border border-accent bg-accent-soft p-4 text-sm leading-6 text-mist;
+    @apply rounded-[14px] border border-accent/35 bg-accent-soft p-4 text-sm leading-6 text-mist;
+  }
+
+  .warning-callout {
+    @apply rounded-[14px] border border-warning/45 bg-warning/10 p-4 text-sm leading-6 text-mist;
   }
 
   .mono-value {
-    @apply font-mono text-sm tabular-nums text-white;
+    @apply font-mono text-sm tabular-nums text-mist;
   }
 }

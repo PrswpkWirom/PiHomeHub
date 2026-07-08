@@ -1,5 +1,6 @@
 import subprocess
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -272,6 +273,180 @@ async def test_service_capabilities_include_all_optional_services(app):
     capabilities = {item["slug"]: item["actions"] for item in response.json()}
     assert set(capabilities) == {"adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden"}
     assert all(actions == ["build", "start", "stop", "restart"] for actions in capabilities.values())
+
+
+@pytest.mark.anyio
+async def test_service_ports_return_defaults(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports.docker_service._docker_rows", return_value={}),
+            patch("app.services.service_ports._docker_running_ports", return_value={}),
+        ):
+            response = await client.get("/api/services/ports")
+
+    assert response.status_code == 200
+    adguard = next(item for item in response.json() if item["slug"] == "adguard-home")
+    dns = next(port for port in adguard["ports"] if port["key"] == "dns")
+    assert dns["desired_host_port"] == 53
+    assert dns["protocols"] == ["tcp", "udp"]
+    assert adguard["has_pending_port_change"] is False
+
+
+@pytest.mark.anyio
+async def test_service_port_update_writes_env_and_marks_running_service_pending(app):
+    from app.core.config import get_settings
+
+    running_adguard = {
+        (3000, "tcp"): 3001,
+        (53, "tcp"): 53,
+        (53, "udp"): 53,
+    }
+
+    def running_ports(slug: str):
+        return running_adguard if slug == "adguard-home" else {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("running", "Up")}),
+            patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
+            patch("app.services.service_ports._host_listeners", return_value={"tcp": set(), "udp": set()}),
+        ):
+            response = await client.patch("/api/services/adguard-home/ports", json={"ports": {"dns": 5353}})
+
+    assert response.status_code == 200
+    dns = next(port for port in response.json()["ports"] if port["key"] == "dns")
+    assert dns["desired_host_port"] == 5353
+    assert dns["running_host_ports"] == {"tcp": 53, "udp": 53}
+    assert dns["pending"] is True
+    assert response.json()["has_pending_port_change"] is True
+    env_path = Path(get_settings().compose_env_file)
+    assert "ADGUARD_DNS_PORT=5353" in env_path.read_text()
+
+
+@pytest.mark.anyio
+async def test_service_port_update_rejects_other_managed_service_running_port(app):
+    def running_ports(slug: str):
+        if slug == "adguard-home":
+            return {(53, "tcp"): 53, (53, "udp"): 53}
+        return {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
+            patch("app.services.service_ports._host_listeners", return_value={"tcp": {53}, "udp": {53}}),
+        ):
+            response = await client.patch("/api/services/mosquitto/ports", json={"ports": {"mqtt": 53}})
+
+    assert response.status_code == 409
+    assert "adguard-home" in response.text
+
+
+@pytest.mark.anyio
+async def test_service_port_update_rejects_duplicate_desired_managed_port(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports._docker_running_ports", return_value={}),
+            patch("app.services.service_ports._host_listeners", return_value={"tcp": set(), "udp": set()}),
+        ):
+            response = await client.patch("/api/services/vaultwarden/ports", json={"ports": {"http": 3001}})
+
+    assert response.status_code == 409
+    assert "adguard-home" in response.text
+
+
+@pytest.mark.anyio
+async def test_service_port_update_rejects_non_pihomehub_host_listener(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports._docker_running_ports", return_value={}),
+            patch("app.services.service_ports._host_listeners", return_value={"tcp": {3007}, "udp": set()}),
+        ):
+            response = await client.patch("/api/services/vaultwarden/ports", json={"ports": {"http": 3007}})
+
+    assert response.status_code == 409
+    assert "already in use on this host" in response.text
+
+
+@pytest.mark.anyio
+async def test_service_port_update_rejects_stringified_port(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        response = await client.patch("/api/services/adguard-home/ports", json={"ports": {"dns": "5353"}})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_service_port_update_allows_same_service_current_port(app):
+    def running_ports(slug: str):
+        if slug == "adguard-home":
+            return {(53, "tcp"): 53, (53, "udp"): 53}
+        return {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with (
+            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("running", "Up")}),
+            patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
+            patch("app.services.service_ports._host_listeners", return_value={"tcp": {53}, "udp": {53}}),
+        ):
+            response = await client.patch("/api/services/adguard-home/ports", json={"ports": {"dns": 53}})
+
+    assert response.status_code == 200
+    dns = next(port for port in response.json()["ports"] if port["key"] == "dns")
+    assert dns["pending"] is False
+
+
+@pytest.mark.anyio
+async def test_service_port_apply_runs_force_recreate_compose_command(app):
+    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        assert login_response.status_code == 200
+
+        with patch("app.services.docker_service.subprocess.run") as mocked_run:
+            mocked_run.return_value.returncode = 0
+            mocked_run.return_value.stdout = "recreated"
+            mocked_run.return_value.stderr = ""
+            response = await client.post("/api/services/adguard-home/ports/apply")
+
+        assert response.status_code == 200
+        assert response.json()["action"] == "recreate"
+        mocked_run.assert_called_once()
+        assert mocked_run.call_args.args[0] == [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "--project-directory",
+            str(COMPOSE_PROJECT_DIR),
+            "--profile",
+            COMPOSE_PROFILE,
+            "up",
+            "-d",
+            "--force-recreate",
+            "adguard-home",
+        ]
 
 
 def test_default_compose_paths_support_docker_container_layout(tmp_path):

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { CheckCircle2, KeyRound, RefreshCw, Save, ServerCog, Wifi } from "lucide-react";
 
 import { api } from "../api/client";
+import { Field } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { invalidateCache, setCachedData } from "../hooks/useFetch";
@@ -87,43 +88,38 @@ export function SettingsPage() {
       <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <Panel title="Tailscale" description="Token values remain write-only in the UI after saving.">
         <form className="space-y-4" onSubmit={save}>
-          <div className="grid gap-3 rounded-2xl border border-line bg-deep/70 p-4 text-sm text-muted sm:grid-cols-3">
-            <div className="rounded-xl bg-card/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Status</p>
+          <div className="grid gap-3 rounded-[18px] border border-line bg-deep p-4 text-sm text-muted sm:grid-cols-3">
+            <div className="rounded-[14px] bg-card/70 p-3">
+              <p className="text-xs font-semibold text-muted">Status</p>
               <div className="mt-2">
                 {status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : <span className="text-muted">Loading...</span>}
               </div>
             </div>
-            <div className="rounded-xl bg-card/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Token</p>
-              <p className="mt-2 font-semibold text-white">{status?.token_saved ? "Token saved" : "No token configured"}</p>
+            <div className="rounded-[14px] bg-card/70 p-3">
+              <p className="text-xs font-semibold text-muted">Token</p>
+              <p className="mt-2 font-semibold text-mist">{status?.token_saved ? "Token saved" : "No token configured"}</p>
             </div>
-            <div className="rounded-xl bg-card/70 p-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Last sync</p>
-              <p className="mt-2 font-mono text-sm tabular-nums text-white">{status?.last_sync_at ?? "Never"}</p>
+            <div className="rounded-[14px] bg-card/70 p-3">
+              <p className="text-xs font-semibold text-muted">Last sync</p>
+              <p className="mt-2 font-mono text-sm tabular-nums text-mist">{status?.last_sync_at ?? "Never"}</p>
             </div>
           </div>
           {status?.last_sync_error ? <p className="error-callout">Last error: {status.last_sync_error}</p> : null}
-          <label className="field-label">
-            API token
-            <input
-              className="input-field"
-              placeholder={status?.token_saved ? "Token saved. Enter a new token to replace it." : "tskey-..."}
-              type="password"
-              value={apiToken}
-              onChange={(event) => setApiToken(event.target.value)}
-            />
-          </label>
-          <label className="field-label">
-            Tailnet
-            <input
-              className="input-field"
-              placeholder="example.com or -"
-              value={tailnet}
-              onChange={(event) => setTailnet(event.target.value)}
-              required
-            />
-          </label>
+          <Field
+            label="API token"
+            help={status?.token_saved ? "Token saved. Enter a new token only when replacing it." : "Paste a Tailscale API token."}
+            type="password"
+            value={apiToken}
+            onChange={(event) => setApiToken(event.target.value)}
+            autoComplete="off"
+          />
+          <Field
+            label="Tailnet"
+            help="Use your tailnet name, example.com, or - for the default account."
+            value={tailnet}
+            onChange={(event) => setTailnet(event.target.value)}
+            required
+          />
           <div className="flex flex-wrap gap-3">
             <button className="btn-primary" disabled={busy}>
               <Save size={16} />

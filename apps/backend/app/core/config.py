@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     monitored_services: str = "adguard-home,gitea,uptime-kuma,vaultwarden,mosquitto"
     compose_file: str | None = None
     compose_project_directory: str | None = None
+    compose_env_file: str | None = None
+    host_proc_net_path: str = "/proc/net"
     allowed_origins: str = "http://localhost:5173"
     service_links_json: str = "[]"
     known_devices_json: str = "[]"

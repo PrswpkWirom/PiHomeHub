@@ -1,30 +1,33 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: "class",
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        app: "#282934",
-        deep: "#1f2028",
-        card: "#30313d",
-        raised: "#363746",
-        line: "rgba(255, 255, 255, 0.1)",
-        mist: "#d7dae7",
-        muted: "#9499ad",
-        accent: "#3cc7c8",
-        "accent-soft": "rgba(60, 199, 200, 0.14)",
-        success: "#4ade80",
-        warning: "#f5c15c",
-        danger: "#fb7185"
+        app: "rgb(var(--color-app) / <alpha-value>)",
+        deep: "rgb(var(--color-deep) / <alpha-value>)",
+        card: "rgb(var(--color-card) / <alpha-value>)",
+        raised: "rgb(var(--color-raised) / <alpha-value>)",
+        line: "rgb(var(--color-line) / <alpha-value>)",
+        mist: "rgb(var(--color-mist) / <alpha-value>)",
+        muted: "rgb(var(--color-muted) / <alpha-value>)",
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        accent: "rgb(var(--color-accent) / <alpha-value>)",
+        "accent-focus": "rgb(var(--color-accent-focus) / <alpha-value>)",
+        "accent-soft": "rgb(var(--color-accent-soft) / <alpha-value>)",
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)"
       },
       fontFamily: {
-        display: ["Outfit", "Aptos Display", "Segoe UI", "sans-serif"],
-        body: ["Outfit", "Aptos", "Segoe UI", "sans-serif"],
+        display: ["system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        body: ["system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         mono: ["'SFMono-Regular'", "Consolas", "'Liberation Mono'", "monospace"]
       },
       boxShadow: {
-        panel: "0 22px 50px rgba(8, 10, 18, 0.24)",
-        glow: "0 0 0 1px rgba(60, 199, 200, 0.22), 0 18px 44px rgba(20, 144, 146, 0.13)"
+        panel: "var(--shadow-panel)",
+        lift: "var(--shadow-lift)"
       }
     }
   },

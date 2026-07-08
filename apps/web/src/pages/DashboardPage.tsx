@@ -13,10 +13,10 @@ function Metric({ label, value, detail, icon: Icon }: { label: string; value: st
   return (
     <div className="metric-card">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">{label}</p>
+        <p className="text-xs font-semibold text-muted">{label}</p>
         <Icon className="text-accent" size={18} />
       </div>
-      <p className="mt-3 font-mono text-3xl font-semibold tabular-nums text-white">{value}</p>
+      <p className="mt-3 font-mono text-3xl font-semibold tabular-nums text-mist">{value}</p>
       {detail ? <p className="mt-1 text-sm text-muted">{detail}</p> : null}
     </div>
   );
@@ -79,7 +79,7 @@ export function DashboardPage() {
       <Panel
         title="System health"
         action={
-          <span className="rounded-lg border border-line bg-white/[0.04] px-3 py-2 text-xs font-semibold text-muted">
+          <span className="rounded-full border border-line bg-deep px-3 py-2 text-xs font-semibold text-muted">
             {metrics.refreshing ? "Refreshing..." : metrics.updatedAt ? `Updated ${new Date(metrics.updatedAt).toLocaleTimeString()}` : "Waiting"}
           </span>
         }
@@ -106,7 +106,7 @@ export function DashboardPage() {
             {activeManualDevices.map((device) => (
               <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="font-semibold text-white">{device.name}</p>
+                  <p className="font-semibold text-mist">{device.name}</p>
                   <p className="mt-1 text-sm text-muted">{device.description ?? device.device_type}</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -131,7 +131,7 @@ export function DashboardPage() {
             {activeTailscaleDevices.map((device) => (
               <div key={`tailscale-${device.id}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="font-semibold text-white">{device.display_name}</p>
+                  <p className="font-semibold text-mist">{device.display_name}</p>
                   <p className="mt-1 text-sm text-muted">{device.hostname ?? device.machine_name} / {device.os ?? "Unknown OS"}</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -152,7 +152,7 @@ export function DashboardPage() {
             ))}
             {devicesLoaded && !hasActiveDevices ? <p className="empty-state">No active devices right now. Devices will appear here when they report online.</p> : null}
             {hiddenDeviceCount > 0 ? (
-              <Link to="/devices" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-white">
+              <Link to="/devices" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-accent-focus">
                 {hiddenDeviceCount} inactive {hiddenDeviceCount === 1 ? "device" : "devices"} hidden
                 <ArrowRight size={16} />
               </Link>
@@ -168,7 +168,7 @@ export function DashboardPage() {
             {services.data?.map((service) => (
               <div key={service.slug} className="raised-card flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="font-semibold text-white">{service.name}</p>
+                  <p className="font-semibold text-mist">{service.name}</p>
                   <p className="mt-1 truncate text-sm text-muted">{service.detail}</p>
                 </div>
                 <StatusPill status={service.status} />
@@ -186,13 +186,13 @@ export function DashboardPage() {
             {tasks.error ? <p className="error-callout">{tasks.error}</p> : null}
             {tasks.data?.slice(0, 4).map((task) => (
               <div key={task.id} className="raised-card">
-                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-white"}`}>{task.title}</p>
+                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-mist"}`}>{task.title}</p>
                 <p className="mt-1 text-sm text-muted">{task.due_label ?? "No due label"}</p>
               </div>
             ))}
             {tasks.data?.length === 0 ? <p className="empty-state">No tasks yet.</p> : null}
             {(tasks.data?.length ?? 0) > 4 ? (
-              <Link to="/planner" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-white">
+              <Link to="/planner" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-accent-focus">
                 View all tasks
                 <ArrowRight size={16} />
               </Link>
@@ -209,7 +209,7 @@ export function DashboardPage() {
               return (
                 <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-white">{link.name}</p>
+                    <p className="font-semibold text-mist">{link.name}</p>
                     <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
                   </div>
                   <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? resolvedUrl}</p>

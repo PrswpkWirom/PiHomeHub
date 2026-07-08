@@ -13,7 +13,7 @@ export function Panel({
     <section className="app-panel">
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="font-display text-xl font-semibold leading-tight text-white">{title}</h2>
+          <h2 className="font-display text-xl font-semibold leading-tight tracking-[-0.01em] text-mist">{title}</h2>
           {description ? <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{description}</p> : null}
         </div>
         {action}

@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LockKeyhole, Router } from "lucide-react";
 
+import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
 
 export function LoginPage() {
@@ -29,14 +30,17 @@ export function LoginPage() {
   return (
     <main className="grid min-h-dvh overflow-x-hidden bg-app px-4 py-8 text-mist sm:place-items-center">
       <form className="app-panel w-full min-w-0 max-w-[20.5rem] self-start justify-self-start sm:mx-auto sm:max-w-md sm:self-auto sm:justify-self-center" onSubmit={onSubmit}>
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-xl border border-accent/35 bg-accent-soft text-accent">
-            <Router size={24} />
+        <div className="flex min-w-0 items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="grid h-12 w-12 place-items-center rounded-[14px] border border-line bg-accent-soft text-accent">
+              <Router size={24} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-muted">LAN and Tailscale</p>
+              <h1 className="font-display text-3xl font-semibold leading-tight tracking-[-0.01em] text-mist">PiHomeHub</h1>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="eyebrow">LAN and Tailscale</p>
-            <h1 className="font-display text-3xl font-semibold leading-tight text-white">PiHomeHub</h1>
-          </div>
+          <ThemeToggle compact />
         </div>
         <p className="mt-4 break-words text-sm leading-6 text-muted">Single-admin access for your private home dashboard.</p>
         <label className="field-label mt-6">

@@ -166,6 +166,7 @@ apps/backend/pihomehub.db-*
 # Infra service local data, generated config, and secrets
 infra/.env
 infra/.env.*
+!infra/.env.example
 infra/**/.env
 infra/**/*.env
 infra/**/data/
@@ -266,3 +267,4 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 AGENTS.md
+DESIGN.md

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Edit3, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
+import { Field, TextareaField } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
@@ -252,7 +253,7 @@ export function DevicesPage() {
           {tailscale.data?.map((device) => (
             <div key={device.id} className="raised-card grid gap-4 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center">
               <div className="min-w-0">
-                <p className="font-semibold text-white">{device.display_name}</p>
+                <p className="font-semibold text-mist">{device.display_name}</p>
                 <p className="mt-1 text-sm text-muted">{device.hostname ?? "No hostname"} / {device.os ?? "Unknown OS"}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -275,20 +276,14 @@ export function DevicesPage() {
           {tailscale.data?.length === 0 ? <p className="empty-state">No Tailscale devices synced yet. Add the API token in Settings and run sync.</p> : null}
         </div>
         {editingTailscaleDevice ? (
-          <form className="mt-5 grid gap-5 rounded-2xl border border-accent/25 bg-deep/74 p-5" onSubmit={saveTailscaleSettings}>
-            <div className="grid gap-2">
-              <label className="field-label" htmlFor="tailscale-display-name">
-                Display name
-              </label>
-              <input
-                id="tailscale-display-name"
-                className="input-field"
-                placeholder={editingTailscaleDevice.machine_name}
-                value={settingsForm.display_name ?? ""}
-                onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
-              />
-              <p className="text-sm text-muted">Leave blank to use the Tailscale machine name.</p>
-            </div>
+          <form className="mt-5 grid gap-5 rounded-[18px] border border-accent/25 bg-deep p-5" onSubmit={saveTailscaleSettings}>
+            <Field
+              id="tailscale-display-name"
+              label="Display name"
+              help={`Leave blank to use ${editingTailscaleDevice.machine_name}.`}
+              value={settingsForm.display_name ?? ""}
+              onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
+            />
 
             <section className="grid gap-3">
               <h3 className="text-sm font-semibold text-mist">Tailscale information</h3>
@@ -306,9 +301,9 @@ export function DevicesPage() {
                   ["Last seen", editingTailscaleDevice.last_seen],
                   ["Last synced", editingTailscaleDevice.last_synced_at]
                 ].map(([label, value]) => (
-                  <div key={label as string} className="rounded-xl border border-line bg-card/70 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
-                    <p className="mt-1 break-all text-sm text-white">{detailValue(value as string | string[] | null)}</p>
+                  <div key={label as string} className="rounded-[14px] border border-line bg-card/70 px-4 py-3">
+                    <p className="text-xs font-semibold text-muted">{label}</p>
+                    <p className="mt-1 break-all text-sm text-mist">{detailValue(value as string | string[] | null)}</p>
                   </div>
                 ))}
               </div>
@@ -321,11 +316,11 @@ export function DevicesPage() {
                 Supports Wake-on-LAN
               </label>
               <div className="grid gap-3 md:grid-cols-2">
-                <input className="input-field" placeholder="MAC address" value={settingsForm.mac_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, mac_address: event.target.value })} />
-                <input className="input-field" placeholder="LAN IP address" value={settingsForm.lan_ip_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, lan_ip_address: event.target.value })} />
-                <input className="input-field" placeholder="Broadcast address" value={settingsForm.broadcast_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, broadcast_address: event.target.value })} />
+                <Field label="MAC address" value={settingsForm.mac_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, mac_address: event.target.value })} />
+                <Field label="LAN IP address" value={settingsForm.lan_ip_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, lan_ip_address: event.target.value })} />
+                <Field label="Broadcast address" value={settingsForm.broadcast_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, broadcast_address: event.target.value })} />
               </div>
-              <textarea className="textarea-field" placeholder="Note" value={settingsForm.note ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, note: event.target.value })} />
+              <TextareaField label="Note" value={settingsForm.note ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, note: event.target.value })} />
             </section>
 
             <div className="flex flex-wrap gap-2">
@@ -343,19 +338,19 @@ export function DevicesPage() {
       <Panel title="Manual devices" description="LAN devices you add and maintain directly in PiHomeHub.">
         {manual.loading ? <LoadingRows /> : null}
         {manual.error ? <p className="error-callout">{manual.error}</p> : null}
-        <form className="mb-5 grid gap-3 rounded-2xl border border-line bg-deep/70 p-5" onSubmit={saveManual}>
+        <form className="mb-5 grid gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="input-field" placeholder="Name" value={manualForm.name} onChange={(event) => setManualForm({ ...manualForm, name: event.target.value })} required />
-            <input className="input-field" placeholder="Device type" value={manualForm.device_type} onChange={(event) => setManualForm({ ...manualForm, device_type: event.target.value })} />
-            <input className="input-field" placeholder="Local IP" value={manualForm.ip_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, ip_address: event.target.value })} />
-            <input className="input-field" placeholder="Tailscale name" value={manualForm.tailscale_name ?? ""} onChange={(event) => setManualForm({ ...manualForm, tailscale_name: event.target.value })} />
-            <input className="input-field" placeholder="MAC address" value={manualForm.mac_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, mac_address: event.target.value })} />
+            <Field label="Name" value={manualForm.name} onChange={(event) => setManualForm({ ...manualForm, name: event.target.value })} required />
+            <Field label="Device type" value={manualForm.device_type} onChange={(event) => setManualForm({ ...manualForm, device_type: event.target.value })} />
+            <Field label="Local IP" value={manualForm.ip_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, ip_address: event.target.value })} />
+            <Field label="Tailscale name" value={manualForm.tailscale_name ?? ""} onChange={(event) => setManualForm({ ...manualForm, tailscale_name: event.target.value })} />
+            <Field label="MAC address" value={manualForm.mac_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, mac_address: event.target.value })} />
             <label className="check-row">
               <input className="check-input" type="checkbox" checked={manualForm.supports_wol} onChange={(event) => setManualForm({ ...manualForm, supports_wol: event.target.checked })} />
               Supports WOL
             </label>
           </div>
-          <textarea className="textarea-field" placeholder="Description" value={manualForm.description ?? ""} onChange={(event) => setManualForm({ ...manualForm, description: event.target.value })} />
+          <TextareaField label="Description" value={manualForm.description ?? ""} onChange={(event) => setManualForm({ ...manualForm, description: event.target.value })} />
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary">{editingManualId ? "Save device" : "Add device"}</button>
             {editingManualId ? (
@@ -375,7 +370,7 @@ export function DevicesPage() {
           {manual.data?.map((device) => (
             <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr] md:items-center">
               <div className="min-w-0">
-                <p className="font-semibold text-white">{device.name}</p>
+                <p className="font-semibold text-mist">{device.name}</p>
                 <p className="mt-1 text-sm text-muted">{device.device_type}</p>
               </div>
               <div className="text-sm text-muted">

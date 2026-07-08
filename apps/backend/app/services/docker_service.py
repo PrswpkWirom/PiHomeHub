@@ -55,6 +55,7 @@ ACTION_MESSAGES = {
     "start": "Service start requested.",
     "stop": "Service stop requested.",
     "restart": "Service restart requested.",
+    "recreate": "Service recreate requested.",
 }
 
 
@@ -122,6 +123,8 @@ def _compose_command(slug: str, action: str) -> list[str]:
         return base + ["stop", slug]
     if action == "restart":
         return base + ["--profile", COMPOSE_PROFILE, "up", "-d", "--build", "--force-recreate", slug]
+    if action == "recreate":
+        return base + ["--profile", COMPOSE_PROFILE, "up", "-d", "--force-recreate", slug]
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
 
 
@@ -141,13 +144,7 @@ def _docker_failure_message(stdout: str, stderr: str) -> str:
     return "Docker action failed"
 
 
-def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResult:
-    allowed_actions = CONTROLLABLE_SERVICES.get(slug)
-    if allowed_actions is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
-    if action not in allowed_actions:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
-
+def _run_compose_action(slug: str, action: str) -> ServiceActionResult:
     try:
         result = subprocess.run(
             _compose_command(slug, action),
@@ -182,3 +179,19 @@ def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResul
         ok=True,
         message=ACTION_MESSAGES[action],
     )
+
+
+def run_service_action(_: Session, slug: str, action: str) -> ServiceActionResult:
+    allowed_actions = CONTROLLABLE_SERVICES.get(slug)
+    if allowed_actions is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
+    if action not in allowed_actions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
+
+    return _run_compose_action(slug, action)
+
+
+def recreate_service(_: Session, slug: str) -> ServiceActionResult:
+    if slug not in CONTROLLABLE_SERVICES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
+    return _run_compose_action(slug, "recreate")

@@ -109,6 +109,27 @@ export type ServiceActionResult = {
   message: string;
 };
 
+export type ServicePort = {
+  key: string;
+  label: string;
+  env_var: string;
+  container_port: number;
+  protocols: string[];
+  default_host_port: number;
+  desired_host_port: number;
+  running_host_ports: Record<string, number | null>;
+  pending: boolean;
+};
+
+export type ServicePortConfig = {
+  slug: string;
+  name: string;
+  status: string;
+  detail: string;
+  has_pending_port_change: boolean;
+  ports: ServicePort[];
+};
+
 export type ServiceLink = {
   id: number;
   name: string;

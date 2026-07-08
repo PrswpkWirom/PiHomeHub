@@ -13,6 +13,8 @@ def _build_test_app(
     monkeypatch.setenv("PIHOMEHUB_DATABASE_URL", f"sqlite:///{db_path}")
     monkeypatch.setenv("PIHOMEHUB_ADMIN_USERNAME", "admin")
     monkeypatch.setenv("PIHOMEHUB_ADMIN_PASSWORD", "test-secret")
+    monkeypatch.setenv("PIHOMEHUB_COMPOSE_ENV_FILE", str(tmp_path / "infra.env"))
+    monkeypatch.setenv("PIHOMEHUB_HOST_PROC_NET_PATH", str(tmp_path / "proc_net"))
     monkeypatch.setenv(
         "PIHOMEHUB_SERVICE_LINKS_JSON",
         '[{"name":"Gitea","slug":"gitea","url":"http://gitea.local","description":"Git"}]',
