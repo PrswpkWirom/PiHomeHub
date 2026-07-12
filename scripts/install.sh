@@ -4,5 +4,6 @@ set -euo pipefail
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r apps/backend/requirements.txt
-python apps/backend/bootstrap.py
-echo "Backend bootstrap complete. Install Node.js and run npm install in apps/web for the frontend."
+(cd apps/backend && ../../.venv/bin/alembic upgrade head)
+echo "Database migrated. Run 'PYTHONPATH=apps/backend .venv/bin/python -m app.cli create-admin' interactively."
+echo "Then install frontend dependencies with 'cd apps/web && npm ci'."

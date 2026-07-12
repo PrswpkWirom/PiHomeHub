@@ -149,6 +149,11 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+*.env
+*.env.*
+!.env.example
+!**/.env.example
 .envrc
 .venv
 env/
@@ -162,6 +167,25 @@ pihomehub.db
 pihomehub.db-*
 apps/backend/pihomehub.db
 apps/backend/pihomehub.db-*
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite3-journal
+
+# Local credentials, certificates, and private key material
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.passwd
+*.password
+*.token
+secrets/
+**/secrets/
 
 # Infra service local data, generated config, and secrets
 infra/.env
@@ -197,6 +221,7 @@ infra/vaultwarden/
 infra/mosquitto/data/
 infra/mosquitto/log/
 infra/mosquitto/passwd
+infra/mosquitto/generated/
 infra/caddy/data/
 infra/caddy/config/
 
@@ -206,6 +231,28 @@ apps/web/dist/
 apps/web/*.tsbuildinfo
 apps/web/vite.config.js
 apps/web/vite.config.d.ts
+node_modules/
+.vite/
+.vitest/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local Docker Compose overrides and runtime state
+compose.override.yml
+compose.override.yaml
+docker-compose.override.yml
+docker-compose.override.yaml
+.docker/
+
+# Local editor and operating-system metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
 
 # Spyder project settings
 .spyderproject
@@ -268,3 +315,4 @@ __marimo__/
 .streamlit/secrets.toml
 AGENTS.md
 DESIGN.md
+/LOCAL_OPERATIONS_RUNBOOK.md

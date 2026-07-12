@@ -4,7 +4,6 @@ from dataclasses import dataclass
 import json
 import logging
 from pathlib import Path
-import subprocess
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -110,41 +109,7 @@ def _desired_ports(env_values: dict[str, str] | None = None) -> dict[str, dict[s
 
 
 def _docker_running_ports(slug: str) -> dict[tuple[int, str], int]:
-    try:
-        result = subprocess.run(
-            ["docker", "inspect", "--format", "{{json .NetworkSettings.Ports}}", slug],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return {}
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return {}
-
-    try:
-        raw_ports = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        logger.warning("Unable to parse docker inspect ports for %s: %r", slug, result.stdout)
-        return {}
-
-    ports: dict[tuple[int, str], int] = {}
-    if not isinstance(raw_ports, dict):
-        return ports
-
-    for container, bindings in raw_ports.items():
-        if "/" not in container or not isinstance(bindings, list) or not bindings:
-            continue
-        container_port_raw, protocol = container.split("/", 1)
-        try:
-            container_port = int(container_port_raw)
-            host_port = int(bindings[0]["HostPort"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        ports[(container_port, protocol)] = host_port
-    return ports
+    return docker_service.get_running_ports(slug)
 
 
 def _all_managed_running_ports() -> dict[tuple[str, int], tuple[str, str]]:
@@ -190,9 +155,9 @@ def _host_listeners() -> dict[str, set[int]]:
 
 def _validate_port_number(value: int, label: str) -> None:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{label} must be a number")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{label} must be a number")
     if value < 1 or value > 65535:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{label} must be between 1 and 65535")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"{label} must be between 1 and 65535")
 
 
 def _validate_desired_ports(slug: str, proposed: dict[str, int]) -> None:
@@ -203,7 +168,7 @@ def _validate_desired_ports(slug: str, proposed: dict[str, int]) -> None:
     unknown_keys = set(proposed) - set(definitions)
     if unknown_keys:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown port setting: {sorted(unknown_keys)[0]}",
         )
 
@@ -303,6 +268,11 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
 
 
 def update_service_port_config(_: Session, slug: str, payload: ServicePortConfigUpdate) -> ServicePortConfigRead:
+    if get_settings().is_production:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Production port changes are operator-managed; edit infra/.env and redeploy with Docker Compose",
+        )
     definitions = {definition.key: definition for definition in SERVICE_PORTS.get(slug, ())}
     if not definitions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not configurable")

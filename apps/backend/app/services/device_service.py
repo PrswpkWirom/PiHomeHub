@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
+# Fixed executable and argument array; no shell is used.
+import subprocess  # nosec B404
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -45,8 +46,9 @@ def _ping_host(host: str | None) -> str:
     if not host:
         return "unknown"
     try:
-        result = subprocess.run(
-            ["ping", "-c", "1", "-W", "1", host],
+        # The host follows -- and cannot become an executable option.
+        result = subprocess.run(  # nosec B603
+            ["/usr/bin/ping", "-c", "1", "-W", "1", "--", host],
             capture_output=True,
             text=True,
             check=False,

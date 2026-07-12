@@ -4,7 +4,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport
+
+from app.tests.conftest import AsyncClient
 
 from app.models.tailscale_device import TailscaleDevice
 from app.models.user import AppSetting
@@ -13,7 +15,7 @@ from app.models.user import AppSetting
 @pytest.mark.anyio
 async def test_login_and_me(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert response.status_code == 200
         assert response.json()["username"] == "admin"
 
@@ -32,7 +34,7 @@ async def test_protected_route_requires_auth(app):
 @pytest.mark.anyio
 async def test_pi_status_schema(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert response.status_code == 200
 
         response = await client.get("/api/system/pi")
@@ -46,7 +48,7 @@ async def test_pi_status_schema(app):
 @pytest.mark.anyio
 async def test_task_crud(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         created = await client.post("/api/tasks", json={"title": "Test task", "due_label": "Today"})
@@ -67,7 +69,7 @@ async def test_task_crud(app):
 @pytest.mark.anyio
 async def test_manual_devices_excludes_synthetic_self_host(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         listing = await client.get("/api/devices")
@@ -90,7 +92,7 @@ async def test_manual_devices_excludes_synthetic_self_host(app):
 )
 async def test_manual_devices_status_probe_failures_do_not_break_listing(app, status_probe_error):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with patch("app.services.device_service.subprocess.run", side_effect=status_probe_error):
@@ -105,7 +107,7 @@ async def test_manual_devices_status_probe_failures_do_not_break_listing(app, st
 @pytest.mark.anyio
 async def test_manual_devices_empty_without_seeded_or_added_devices(app_without_known_devices):
     async with AsyncClient(transport=ASGITransport(app=app_without_known_devices), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         listing = await client.get("/api/devices")
@@ -117,7 +119,7 @@ async def test_manual_devices_empty_without_seeded_or_added_devices(app_without_
 @pytest.mark.anyio
 async def test_deleted_seeded_manual_device_does_not_reappear(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         listing = await client.get("/api/devices")
@@ -134,7 +136,7 @@ async def test_deleted_seeded_manual_device_does_not_reappear(app):
         db.close()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         listing = await client.get("/api/devices")
         assert all(device["name"] != "Gaming Desktop" for device in listing.json())
@@ -143,7 +145,7 @@ async def test_deleted_seeded_manual_device_does_not_reappear(app):
 @pytest.mark.anyio
 async def test_renamed_seeded_manual_device_does_not_duplicate_original_seed(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         listing = await client.get("/api/devices")
@@ -171,7 +173,7 @@ async def test_renamed_seeded_manual_device_does_not_duplicate_original_seed(app
         db.close()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         listing = await client.get("/api/devices")
         names = [device["name"] for device in listing.json()]
@@ -182,7 +184,7 @@ async def test_renamed_seeded_manual_device_does_not_duplicate_original_seed(app
 @pytest.mark.anyio
 async def test_duplicate_manual_device_name_returns_conflict(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         response = await client.post(
@@ -201,7 +203,7 @@ async def test_duplicate_manual_device_name_returns_conflict(app):
 @pytest.mark.anyio
 async def test_renaming_manual_device_to_existing_name_returns_conflict(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         created = await client.post(
@@ -230,15 +232,13 @@ async def test_renaming_manual_device_to_existing_name_returns_conflict(app):
 @pytest.mark.anyio
 async def test_service_status_missing_container(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.stdout = ""
-            mocked_run.return_value.returncode = 0
+        with patch("app.services.docker_service.get_service_snapshot", return_value=[]):
             response = await client.get("/api/services/status")
         assert response.status_code == 200
-        assert response.json()[0]["status"] == "missing"
+        assert response.json()[0]["status"] == "unknown"
 
 
 @pytest.mark.anyio
@@ -251,7 +251,7 @@ async def test_service_action_requires_auth(app):
 @pytest.mark.anyio
 async def test_service_action_rejects_unknown_service_and_action(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         unknown_service = await client.post("/api/services/backend/actions/stop")
@@ -264,7 +264,7 @@ async def test_service_action_rejects_unknown_service_and_action(app):
 @pytest.mark.anyio
 async def test_service_capabilities_include_all_optional_services(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         response = await client.get("/api/services/capabilities")
@@ -272,13 +272,13 @@ async def test_service_capabilities_include_all_optional_services(app):
     assert response.status_code == 200
     capabilities = {item["slug"]: item["actions"] for item in response.json()}
     assert set(capabilities) == {"adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden"}
-    assert all(actions == ["build", "start", "stop", "restart"] for actions in capabilities.values())
+    assert all(actions == ["start", "stop", "restart"] for actions in capabilities.values())
 
 
 @pytest.mark.anyio
 async def test_service_ports_return_defaults(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -309,7 +309,7 @@ async def test_service_port_update_writes_env_and_marks_running_service_pending(
         return running_adguard if slug == "adguard-home" else {}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -337,7 +337,7 @@ async def test_service_port_update_rejects_other_managed_service_running_port(ap
         return {}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -353,7 +353,7 @@ async def test_service_port_update_rejects_other_managed_service_running_port(ap
 @pytest.mark.anyio
 async def test_service_port_update_rejects_duplicate_desired_managed_port(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -369,7 +369,7 @@ async def test_service_port_update_rejects_duplicate_desired_managed_port(app):
 @pytest.mark.anyio
 async def test_service_port_update_rejects_non_pihomehub_host_listener(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -385,7 +385,7 @@ async def test_service_port_update_rejects_non_pihomehub_host_listener(app):
 @pytest.mark.anyio
 async def test_service_port_update_rejects_stringified_port(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         response = await client.patch("/api/services/adguard-home/ports", json={"ports": {"dns": "5353"}})
@@ -401,7 +401,7 @@ async def test_service_port_update_allows_same_service_current_port(app):
         return {}
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with (
@@ -417,36 +417,15 @@ async def test_service_port_update_allows_same_service_current_port(app):
 
 
 @pytest.mark.anyio
-async def test_service_port_apply_runs_force_recreate_compose_command(app):
-    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
-
+async def test_service_port_apply_requires_operator_redeployment(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.returncode = 0
-            mocked_run.return_value.stdout = "recreated"
-            mocked_run.return_value.stderr = ""
-            response = await client.post("/api/services/adguard-home/ports/apply")
+        response = await client.post("/api/services/adguard-home/ports/apply")
 
-        assert response.status_code == 200
-        assert response.json()["action"] == "recreate"
-        mocked_run.assert_called_once()
-        assert mocked_run.call_args.args[0] == [
-            "docker",
-            "compose",
-            "-f",
-            str(COMPOSE_FILE),
-            "--project-directory",
-            str(COMPOSE_PROJECT_DIR),
-            "--profile",
-            COMPOSE_PROFILE,
-            "up",
-            "-d",
-            "--force-recreate",
-            "adguard-home",
-        ]
+        assert response.status_code == 409
+        assert "operator-controlled" in response.text
 
 
 def test_default_compose_paths_support_docker_container_layout(tmp_path):
@@ -469,113 +448,84 @@ def test_default_compose_paths_support_docker_container_layout(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_service_action_runs_allowlisted_compose_command(app):
-    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
-
+async def test_service_action_calls_restricted_control_agent(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.returncode = 0
-            mocked_run.return_value.stdout = "started"
-            mocked_run.return_value.stderr = ""
+        with patch(
+            "app.services.docker_service.request_service_action",
+            return_value={"ok": True, "slug": "adguard-home", "action": "start"},
+        ) as control_request:
             response = await client.post("/api/services/adguard-home/actions/start")
 
         assert response.status_code == 200
         assert response.json()["ok"] is True
         assert response.json()["slug"] == "adguard-home"
-        mocked_run.assert_called_once()
-        assert mocked_run.call_args.args[0] == [
-            "docker",
-            "compose",
-            "-f",
-            str(COMPOSE_FILE),
-            "--project-directory",
-            str(COMPOSE_PROJECT_DIR),
-            "--profile",
-            COMPOSE_PROFILE,
-            "up",
-            "-d",
-            "adguard-home",
-        ]
+        control_request.assert_called_once_with("adguard-home", "start")
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("slug", ["gitea", "uptime-kuma", "mosquitto"])
-async def test_service_action_runs_new_optional_service_compose_command(app, slug):
-    from app.services.docker_service import COMPOSE_FILE, COMPOSE_PROFILE, COMPOSE_PROJECT_DIR
-
+async def test_service_action_calls_control_agent_for_optional_services(app, slug):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.returncode = 0
-            mocked_run.return_value.stdout = "started"
-            mocked_run.return_value.stderr = ""
+        with patch(
+            "app.services.docker_service.request_service_action",
+            return_value={"ok": True, "slug": slug, "action": "start"},
+        ) as control_request:
             response = await client.post(f"/api/services/{slug}/actions/start")
 
         assert response.status_code == 200
         assert response.json()["slug"] == slug
-        mocked_run.assert_called_once()
-        assert mocked_run.call_args.args[0] == [
-            "docker",
-            "compose",
-            "-f",
-            str(COMPOSE_FILE),
-            "--project-directory",
-            str(COMPOSE_PROJECT_DIR),
-            "--profile",
-            COMPOSE_PROFILE,
-            "up",
-            "-d",
-            slug,
-        ]
+        control_request.assert_called_once_with(slug, "start")
 
 
 @pytest.mark.anyio
 async def test_service_action_returns_safe_docker_failure(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.returncode = 1
-            mocked_run.return_value.stdout = ""
-            mocked_run.return_value.stderr = "line one\nunable to pull image"
-            response = await client.post("/api/services/vaultwarden/actions/build")
+        from app.services.control_agent_client import ControlAgentError
+
+        with patch(
+            "app.services.docker_service.request_service_action",
+            side_effect=ControlAgentError("Control agent rejected the operation"),
+        ):
+            response = await client.post("/api/services/vaultwarden/actions/start")
 
         assert response.status_code == 502
-        assert "unable to pull image" in response.text
-        assert "line one" not in response.text
+        assert "Control agent operation failed" in response.text
+        assert "unable to pull image" not in response.text
 
 
 @pytest.mark.anyio
 async def test_service_action_returns_meaningful_docker_cli_error(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.subprocess.run") as mocked_run:
-            mocked_run.return_value.returncode = 1
-            mocked_run.return_value.stdout = ""
-            mocked_run.return_value.stderr = (
-                "docker: 'compose' is not a docker command.\n"
-                "See 'docker --help'\n"
-                "For more help on how to use Docker, head to https://docs.docker.com/go/guides/"
-            )
+        from app.services.control_agent_client import ControlAgentError
+
+        with patch(
+            "app.services.docker_service.request_service_action",
+            side_effect=ControlAgentError("Control agent is unavailable"),
+        ):
             response = await client.post("/api/services/adguard-home/actions/start")
 
         assert response.status_code == 502
-        assert "docker: 'compose' is not a docker command" in response.text
+        assert "Control agent operation failed" in response.text
+        assert "docker" not in response.text.lower()
         assert "docs.docker.com" not in response.text
 
 
 @pytest.mark.anyio
 async def test_wol_requires_supported_device(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         with patch("app.services.wol_service._send_magic_packet") as sender:
@@ -590,7 +540,7 @@ async def test_wol_requires_supported_device(app):
 @pytest.mark.anyio
 async def test_tailscale_settings_hide_and_protect_token(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         saved = await client.post("/api/tailscale/settings", json={"api_token": "tskey-secret", "tailnet": "example.com"})
@@ -614,7 +564,7 @@ async def test_tailscale_settings_hide_and_protect_token(app):
 @pytest.mark.anyio
 async def test_tailscale_test_connection_success_and_failure(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         await client.post("/api/tailscale/settings", json={"api_token": "tskey-secret", "tailnet": "example.com"})
 
@@ -659,7 +609,7 @@ async def test_tailscale_sync_upsert_missing_and_manual_device_isolation(app):
     ]
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         manual = await client.post(
             "/api/devices",
@@ -712,7 +662,7 @@ async def test_tailscale_sync_infers_online_from_recent_last_seen(app):
     ]
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         await client.post("/api/tailscale/settings", json={"api_token": "tskey-secret", "tailnet": "example.com"})
 
@@ -751,7 +701,7 @@ async def test_tailscale_sync_prefers_connected_to_control(app):
     ]
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
         await client.post("/api/tailscale/settings", json={"api_token": "tskey-secret", "tailnet": "example.com"})
 
@@ -774,7 +724,7 @@ async def test_tailscale_wol_validation_and_wake(app):
         db.close()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         blocked = await client.post("/api/tailscale/devices/1/wake")
@@ -814,7 +764,7 @@ async def test_tailscale_device_settings_display_name_and_wol(app):
         db.close()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "test-secret"})
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
         listing = await client.get("/api/tailscale/devices")

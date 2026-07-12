@@ -1,23 +1,24 @@
 # Architecture
 
-PiHomeHub v0.1 is a local-first monorepo with a FastAPI backend, React PWA frontend, SQLite persistence, and Docker-based local deployment.
+PiHomeHub v0.1 is a local-first React PWA, FastAPI API, SQLite database, and Docker deployment for a Raspberry Pi.
 
-## Subsystems
+## Production flow
 
-- `apps/backend`: authenticated REST API for system metrics, Docker service state, manual devices, Tailscale devices, Wake-on-LAN, and tasks
-- `apps/web`: installable PWA for dashboard, devices, services, planner, and settings
-- `infra`: Docker Compose and Caddy reverse proxy
+```text
+Browser
+  -> Tailscale Serve HTTPS (recommended)
+  -> loopback Caddy HTTPS (only published Compose port)
+     -> static frontend container
+     -> FastAPI container
+        -> SQLite
+        -> Tailscale API / WOL / host metrics
+        -> HMAC-authenticated private control network
+           -> restricted control agent
+              -> Docker socket
+```
 
-## Data Flow
+The frontend is a multi-stage static build; Vite is absent from runtime. FastAPI runs as an unprivileged user without Docker CLI/socket. The control agent is isolated, not host-published, and accepts only status/start/stop/restart for five fixed services. MQTT and home services are optional profiles.
 
-1. The browser authenticates against `POST /api/auth/login`.
-2. The backend issues an HTTP-only session cookie backed by the `sessions` table.
-3. Authenticated pages call REST endpoints for metrics, manual devices, synced Tailscale devices, services, and tasks.
-4. The backend reads local host metrics via `psutil`, service state via the Docker CLI, syncs Tailscale machines through the Tailscale API, and sends WOL packets directly.
-5. Structured app data is stored in SQLite.
+Authentication uses opaque hashed server sessions, a strict host-only cookie, per-session CSRF synchronizer token, origin checks, idle/absolute expiration, and revocation. Authorization is enforced by route dependencies rather than the frontend. Audit events are structured rows in SQLite.
 
-## Tailscale Devices
-
-Tailscale machines are stored separately from manual devices. Sync updates machine identity, hostname, Tailscale addresses, OS, online status, last seen, tags, and sync status by stable Tailscale ID.
-
-Local Wake-on-LAN details stay in PiHomeHub because the Tailscale API does not provide LAN MAC or broadcast metadata. If a synced machine disappears from the API, PiHomeHub marks it `missing_from_tailnet` and keeps its local WOL configuration.
+Tailscale machines are distinct from manual devices. Sync stores stable machine identity and status; local aliases, MAC addresses, broadcast addresses, and WOL settings remain in PiHomeHub. Missing remote devices retain local metadata and are marked missing.

@@ -3,56 +3,86 @@ services:
     build:
       context: ../apps/backend
       dockerfile: Dockerfile
-    env_file:
-      - ../apps/backend/.env
     environment:
-      PIHOMEHUB_COMPOSE_FILE: /workspace/infra/docker-compose.yml
-      PIHOMEHUB_COMPOSE_PROJECT_DIRECTORY: /workspace/infra
-      PIHOMEHUB_COMPOSE_ENV_FILE: /workspace/infra/.env
+      PIHOMEHUB_ENV: production
+      PIHOMEHUB_SECRET_KEY: ${PIHOMEHUB_SECRET_KEY:-}
+      PIHOMEHUB_CONTROL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
+      PIHOMEHUB_DATABASE_URL: sqlite:////data/pihomehub.db
+      PIHOMEHUB_PUBLIC_BASE_URL: ${PIHOMEHUB_PUBLIC_BASE_URL:-}
+      PIHOMEHUB_ALLOWED_ORIGINS: ${PIHOMEHUB_ALLOWED_ORIGINS:-}
+      PIHOMEHUB_CONTROL_AGENT_URL: http://control-agent:9000
+      PIHOMEHUB_TRUSTED_PROXY_IPS: ${PIHOMEHUB_TRUSTED_PROXY_IPS:-172.16.0.0/12}
       PIHOMEHUB_HOST_PROC_NET_PATH: /host/proc/net
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
-      - ../apps/backend:/app
-      - ..:/workspace:ro
-      - ../infra:/workspace/infra
+      - backend-data:/data
       - /proc/net:/host/proc/net:ro
+    depends_on:
+      - control-agent
+    networks:
+      - edge
+      - control
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  control-agent:
+    build:
+      context: ../apps/control_agent
+      dockerfile: Dockerfile
+    environment:
+      PIHOMEHUB_CONTROL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
+      PIHOMEHUB_CONTROL_AGENT_SERVICES: adguard-home,gitea,uptime-kuma,vaultwarden,mosquitto
+    expose:
+      - "9000"
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - control
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   web:
     build:
       context: ../apps/web
       dockerfile: Dockerfile
-    environment:
-      PIHOMEHUB_VITE_CACHE_DIR: /tmp/pihomehub-vite-cache
-    ports:
-      - "5173:5173"
-    volumes:
-      - ../apps/web:/app
-      - web-node-modules:/app/node_modules
-    depends_on:
-      - backend
+    expose:
+      - "80"
+    networks:
+      - edge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   caddy:
-    image: caddy:2.8
+    image: caddy:2.8-alpine
+    environment:
+      PIHOMEHUB_HOST: ${PIHOMEHUB_HOST:-localhost}
     ports:
-      - "80:80"
-      - "443:443"
+      - "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
       - web
       - backend
+    networks:
+      - edge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   adguard-home:
     image: adguard/adguardhome:latest
     container_name: adguard-home
-    profiles:
-      - home-services
+    profiles: [home-services]
     ports:
-      - "${ADGUARD_WEB_PORT:-3001}:3000"
-      - "${ADGUARD_DNS_PORT:-53}:53/tcp"
-      - "${ADGUARD_DNS_PORT:-53}:53/udp"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_WEB_PORT:-3001}:3000"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_DNS_PORT:-53}:53/tcp"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_DNS_PORT:-53}:53/udp"
     volumes:
       - adguard-work:/opt/adguardhome/work
       - adguard-conf:/opt/adguardhome/conf
@@ -61,14 +91,13 @@ services:
   gitea:
     image: docker.gitea.com/gitea:1
     container_name: gitea
-    profiles:
-      - home-services
+    profiles: [home-services]
     environment:
       USER_UID: "1000"
       USER_GID: "1000"
     ports:
-      - "${GITEA_HTTP_PORT:-3002}:3000"
-      - "${GITEA_SSH_PORT:-2222}:22"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${GITEA_HTTP_PORT:-3002}:3000"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${GITEA_SSH_PORT:-2222}:22"
     volumes:
       - gitea-data:/data
     restart: unless-stopped
@@ -76,10 +105,9 @@ services:
   uptime-kuma:
     image: louislam/uptime-kuma:2
     container_name: uptime-kuma
-    profiles:
-      - home-services
+    profiles: [home-services]
     ports:
-      - "${UPTIME_KUMA_HTTP_PORT:-3003}:3001"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${UPTIME_KUMA_HTTP_PORT:-3003}:3001"
     volumes:
       - uptime-kuma-data:/app/data
     restart: unless-stopped
@@ -87,10 +115,9 @@ services:
   vaultwarden:
     image: vaultwarden/server:latest
     container_name: vaultwarden
-    profiles:
-      - home-services
+    profiles: [home-services]
     ports:
-      - "${VAULTWARDEN_HTTP_PORT:-3004}:80"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${VAULTWARDEN_HTTP_PORT:-3004}:80"
     volumes:
       - vaultwarden-data:/data
     restart: unless-stopped
@@ -98,17 +125,25 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
-    profiles:
-      - home-services
+    profiles: [mqtt]
     ports:
-      - "${MOSQUITTO_MQTT_PORT:-1883}:1883"
+      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${MOSQUITTO_MQTT_PORT:-1883}:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/generated:/mosquitto/config/generated:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
     restart: unless-stopped
 
+networks:
+  edge:
+  control:
+    internal: true
+
 volumes:
+  backend-data:
+  caddy-data:
+  caddy-config:
   adguard-work:
   adguard-conf:
   gitea-data:
@@ -116,4 +151,3 @@ volumes:
   vaultwarden-data:
   mosquitto-data:
   mosquitto-log:
-  web-node-modules:

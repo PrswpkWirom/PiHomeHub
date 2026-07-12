@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import router
 from app.core.config import get_settings
+from app.core.middleware import RequestSecurityMiddleware
 from app.database.bootstrap import bootstrap_database
 
 
@@ -14,25 +15,32 @@ async def lifespan(_: FastAPI):
     yield
 
 
-settings = get_settings()
+def create_app(*, include_lifespan: bool = True) -> FastAPI:
+    settings = get_settings()
+    application = FastAPI(
+        title="PiHomeHub API",
+        version="0.1.0",
+        debug=False,
+        lifespan=lifespan if include_lifespan else None,
+        docs_url=None if settings.is_production else "/docs",
+        redoc_url=None if settings.is_production else "/redoc",
+        openapi_url=None if settings.is_production else "/openapi.json",
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins_list,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID"],
+    )
+    application.add_middleware(RequestSecurityMiddleware)
+    application.include_router(router)
 
-app = FastAPI(
-    title="PiHomeHub API",
-    version="0.1.0",
-    lifespan=lifespan,
-)
+    @application.get("/health", include_in_schema=False)
+    async def healthcheck():
+        return {"status": "ok"}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(router)
+    return application
 
 
-@app.get("/health")
-async def healthcheck():
-    return {"status": "ok"}
+app = create_app()

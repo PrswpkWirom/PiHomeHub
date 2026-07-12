@@ -1,12 +1,34 @@
+let csrfToken: string | null = null;
+
+function csrfTokenFromCookie(): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const cookie = document.cookie
+    .split(";")
+    .map((item) => item.trim())
+    .find((item) => item.startsWith("pihomehub_csrf=") || item.startsWith("__Host-pihomehub_csrf="));
+  return cookie ? decodeURIComponent(cookie.split("=", 2)[1]) : null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  csrfToken ??= csrfTokenFromCookie();
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) {
+    headers.set("X-CSRF-Token", csrfToken);
+  }
   const response = await fetch(path, {
+    ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    },
-    ...init
+    headers
   });
+
+  const nextCsrfToken = response.headers.get("X-CSRF-Token");
+  if (nextCsrfToken) {
+    csrfToken = nextCsrfToken;
+  }
 
   if (!response.ok) {
     const body = await response.text();
@@ -29,6 +51,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function clearCsrfToken() {
+  csrfToken = null;
 }
 
 export const api = {

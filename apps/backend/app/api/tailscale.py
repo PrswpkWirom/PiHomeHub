@@ -10,7 +10,7 @@ from app.schemas.tailscale import (
     TailscaleStatus,
     TailscaleWolUpdate,
 )
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, require_admin, require_recent_admin
 from app.services.tailscale_service import (
     get_tailscale_status,
     list_tailscale_devices,
@@ -30,17 +30,17 @@ async def status(db: Session = Depends(get_db)):
     return get_tailscale_status(db)
 
 
-@router.post("/settings", response_model=TailscaleStatus)
+@router.post("/settings", response_model=TailscaleStatus, dependencies=[Depends(require_recent_admin)])
 async def settings(payload: TailscaleSettingsWrite, db: Session = Depends(get_db)):
     return save_tailscale_settings(db, payload)
 
 
-@router.post("/test", response_model=TailscaleConnectionResult)
+@router.post("/test", response_model=TailscaleConnectionResult, dependencies=[Depends(require_admin)])
 async def test_connection(db: Session = Depends(get_db)):
     return await test_tailscale_connection(db)
 
 
-@router.post("/sync", response_model=list[TailscaleDeviceRead])
+@router.post("/sync", response_model=list[TailscaleDeviceRead], dependencies=[Depends(require_admin)])
 async def sync(db: Session = Depends(get_db)):
     return await sync_tailscale_devices(db)
 
@@ -50,19 +50,19 @@ async def devices(db: Session = Depends(get_db)):
     return list_tailscale_devices(db)
 
 
-@router.patch("/devices/{device_id}/wol", response_model=TailscaleDeviceRead)
+@router.patch("/devices/{device_id}/wol", response_model=TailscaleDeviceRead, dependencies=[Depends(require_admin)])
 async def configure_wol(device_id: int, payload: TailscaleWolUpdate, db: Session = Depends(get_db)):
     return update_tailscale_wol(db, device_id, payload)
 
 
-@router.patch("/devices/{device_id}/settings", response_model=TailscaleDeviceRead)
+@router.patch("/devices/{device_id}/settings", response_model=TailscaleDeviceRead, dependencies=[Depends(require_admin)])
 async def configure_device_settings(
     device_id: int, payload: TailscaleDeviceSettingsUpdate, db: Session = Depends(get_db)
 ):
     return update_tailscale_device_settings(db, device_id, payload)
 
 
-@router.post("/devices/{device_id}/wake")
+@router.post("/devices/{device_id}/wake", dependencies=[Depends(require_admin)])
 async def wake(device_id: int, db: Session = Depends(get_db)):
     wake_tailscale_device(db, device_id)
     return {"status": "sent"}

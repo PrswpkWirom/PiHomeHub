@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.database.db import get_db
@@ -10,7 +10,9 @@ from app.schemas.services import (
     ServicePortConfigUpdate,
     ServiceStatusRead,
 )
-from app.services.auth_service import get_current_user
+from app.services.auth_service import get_current_user, require_recent_admin
+from app.models.user import User
+from app.services.audit_service import record_audit_event
 from app.services.docker_service import get_service_capabilities, get_service_statuses, recreate_service, run_service_action
 from app.services.links_service import get_service_links
 from app.services.service_ports import get_service_port_configs, update_service_port_config
@@ -38,16 +40,44 @@ async def service_ports(db: Session = Depends(get_db)):
     return get_service_port_configs(db)
 
 
-@router.patch("/{slug}/ports", response_model=ServicePortConfigRead)
+@router.patch("/{slug}/ports", response_model=ServicePortConfigRead, dependencies=[Depends(require_recent_admin)])
 async def update_service_ports(slug: str, payload: ServicePortConfigUpdate, db: Session = Depends(get_db)):
     return update_service_port_config(db, slug, payload)
 
 
-@router.post("/{slug}/ports/apply", response_model=ServiceActionResult)
+@router.post("/{slug}/ports/apply", response_model=ServiceActionResult, dependencies=[Depends(require_recent_admin)])
 async def apply_service_ports(slug: str, db: Session = Depends(get_db)):
     return recreate_service(db, slug)
 
 
 @router.post("/{slug}/actions/{action}", response_model=ServiceActionResult)
-async def service_action(slug: str, action: str, db: Session = Depends(get_db)):
-    return run_service_action(db, slug, action)
+async def service_action(
+    slug: str,
+    action: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_recent_admin),
+):
+    try:
+        result = run_service_action(db, slug, action)
+    except Exception:
+        record_audit_event(
+            db,
+            event=f"service_{action}",
+            success=False,
+            request=request,
+            actor_user_id=actor.id,
+            target_type="service",
+            target_identifier=slug,
+        )
+        raise
+    record_audit_event(
+        db,
+        event=f"service_{action}",
+        success=True,
+        request=request,
+        actor_user_id=actor.id,
+        target_type="service",
+        target_identifier=slug,
+    )
+    return result

@@ -1,11 +1,24 @@
-:80 {
-  encode gzip
+:443 {
+	tls internal
+	encode zstd gzip
 
-  handle /api/* {
-    reverse_proxy backend:8000
-  }
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+	}
 
-  handle {
-    reverse_proxy web:5173
-  }
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy web:80 {
+			header_up -Cookie
+			header_up -Authorization
+			header_up -X-CSRF-Token
+		}
+	}
 }

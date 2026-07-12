@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { api } from "../api/client";
+import { api, clearCsrfToken } from "../api/client";
 import { clearApiCache } from "../hooks/useFetch";
 import type { AuthUser } from "../types/api";
 
@@ -23,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const nextUser = await api.get<AuthUser>("/api/auth/me");
       setUser(nextUser);
     } catch {
+      clearCsrfToken();
       setUser(null);
     } finally {
       setLoading(false);
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await api.post("/api/auth/logout");
+    clearCsrfToken();
     clearApiCache();
     setUser(null);
   };

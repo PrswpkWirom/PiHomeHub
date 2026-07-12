@@ -23,7 +23,8 @@ from app.schemas.tailscale import (
 from app.services.wol_service import _send_magic_packet
 
 TAILSCALE_API_BASE = "https://api.tailscale.com/api/v2"
-TOKEN_KEY = "tailscale_api_token"
+# Database setting key name, not a credential value.
+TOKEN_KEY = "tailscale_api_token"  # nosec B105
 TAILNET_KEY = "tailscale_tailnet"
 LAST_SYNC_KEY = "tailscale_last_sync_at"
 LAST_ERROR_KEY = "tailscale_last_sync_error"
@@ -111,8 +112,8 @@ async def test_tailscale_connection(db: Session) -> TailscaleConnectionResult:
         await _fetch_devices(token, tailnet)
     except HTTPException as exc:
         return TailscaleConnectionResult(ok=False, message=str(exc.detail))
-    except Exception as exc:
-        return TailscaleConnectionResult(ok=False, message=str(exc))
+    except Exception:
+        return TailscaleConnectionResult(ok=False, message="Unable to reach Tailscale API")
 
     return TailscaleConnectionResult(ok=True, message="Tailscale connection succeeded")
 
@@ -238,7 +239,7 @@ def update_tailscale_wol(db: Session, device_id: int, payload: TailscaleWolUpdat
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tailscale device not found")
     if payload.supports_wol and not payload.mac_address:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MAC address is required for WOL")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="MAC address is required for WOL")
 
     for key, value in payload.model_dump().items():
         setattr(device, key, value)
@@ -255,7 +256,7 @@ def update_tailscale_device_settings(
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tailscale device not found")
     if payload.supports_wol and not payload.mac_address:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MAC address is required for WOL")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="MAC address is required for WOL")
 
     display_name = payload.display_name.strip() if payload.display_name else None
     device.alias = display_name or None

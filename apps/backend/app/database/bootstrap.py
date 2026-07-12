@@ -3,13 +3,12 @@ import json
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.security import hash_password
 from app.database.db import Base, SessionLocal, engine
 from app.models.device import Device
 from app.models.service_link import ServiceLink
 from app.models.tailscale_device import TailscaleDevice
 from app.models.task import Task
-from app.models.user import AppSetting, SessionToken, User
+from app.models.user import AppSetting, User
 
 settings = get_settings()
 DELETED_KNOWN_DEVICES_KEY = "deleted_known_device_names"
@@ -30,21 +29,13 @@ def bootstrap_database() -> None:
     db = SessionLocal()
     try:
         seed_defaults(db)
+        if settings.is_production and not db.query(User).filter(User.is_admin.is_(True), User.is_active.is_(True)).first():
+            raise RuntimeError("No active administrator exists; run python -m app.cli create-admin")
     finally:
         db.close()
 
 
 def seed_defaults(db: Session) -> None:
-    user = db.query(User).filter(User.username == settings.admin_username).one_or_none()
-    if user is None:
-        db.add(
-            User(
-                username=settings.admin_username,
-                password_hash=hash_password(settings.admin_password),
-                is_admin=True,
-            )
-        )
-
     existing_slugs = {row.slug for row in db.query(ServiceLink).all()}
     for item in settings.service_links_seed:
         slug = item.get("slug")
