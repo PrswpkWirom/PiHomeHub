@@ -21,9 +21,9 @@ export default {
         danger: "rgb(var(--color-danger) / <alpha-value>)"
       },
       fontFamily: {
-        display: ["system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
-        body: ["system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
-        mono: ["'SFMono-Regular'", "Consolas", "'Liberation Mono'", "monospace"]
+        display: ["Manrope", "system-ui", "sans-serif"],
+        body: ["DM Sans", "system-ui", "sans-serif"],
+        mono: ["JetBrains Mono", "'SFMono-Regular'", "Consolas", "monospace"]
       },
       boxShadow: {
         panel: "var(--shadow-panel)",

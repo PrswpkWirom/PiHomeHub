@@ -1,35 +1,33 @@
-import { useState } from "react";
-import { ArrowRight, Cpu, ExternalLink, HardDrive, MemoryStick, Power, Thermometer } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ArrowRight, Clock3, Cpu, ExternalLink, HardDrive, MemoryStick, Monitor, Power, Server, Sparkles, Thermometer, Wifi } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
-import { Link } from "react-router-dom";
 import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TailscaleDevice, TaskItem } from "../types/api";
 import { resolveServiceLinkUrl } from "../utils/serviceLinks";
 
-function Metric({ label, value, detail, icon: Icon }: { label: string; value: string; detail?: string; icon: typeof Cpu }) {
+function formatUptime(seconds: number) {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+}
+
+function Metric({ label, value, percent, icon: Icon, tone = "cyan" }: { label: string; value: string; percent: number | null; icon: typeof Cpu; tone?: "cyan" | "mint" | "amber" | "violet" }) {
+  const safePercent = Math.max(0, Math.min(100, percent ?? 0));
   return (
-    <div className="metric-card">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-muted">{label}</p>
-        <Icon className="text-accent" size={18} />
-      </div>
-      <p className="mt-3 font-mono text-3xl font-semibold tabular-nums text-mist">{value}</p>
-      {detail ? <p className="mt-1 text-sm text-muted">{detail}</p> : null}
-    </div>
+    <article className={`metric-tile metric-tile--${tone}`}>
+      <div className="metric-tile__top"><span className="metric-tile__icon"><Icon size={17} /></span><span className="metric-tile__label">{label}</span></div>
+      <div className="metric-tile__value">{value}</div>
+      <div className="metric-tile__track" aria-hidden="true"><span style={{ width: `${safePercent}%` }} /></div>
+    </article>
   );
 }
 
-function SkeletonGrid({ count = 4 }: { count?: number }) {
-  return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-      {Array.from({ length: count }).map((_, index) => (
-        <div key={index} className="skeleton h-28" />
-      ))}
-    </div>
-  );
+function DashboardSkeleton() {
+  return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-32" />)}</div>;
 }
 
 export function DashboardPage() {
@@ -40,27 +38,35 @@ export function DashboardPage() {
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const tasks = useFetch<TaskItem[]>("/api/tasks");
   const [wolMessage, setWolMessage] = useState<string | null>(null);
-  const activeManualDevices = devices.data?.filter((device) => device.status === "online") ?? [];
-  const activeTailscaleDevices = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
-  const manualHiddenCount = devices.data ? devices.data.length - activeManualDevices.length : 0;
-  const tailscaleHiddenCount = tailscaleDevices.data ? tailscaleDevices.data.length - activeTailscaleDevices.length : 0;
-  const hiddenDeviceCount = manualHiddenCount + tailscaleHiddenCount;
-  const devicesLoaded = devices.data !== null && tailscaleDevices.data !== null;
-  const hasActiveDevices = activeManualDevices.length + activeTailscaleDevices.length > 0;
+  const heroRef = useRef<HTMLElement>(null);
 
-  const wake = async (deviceId: number) => {
+  const activeManual = devices.data?.filter((device) => device.status === "online") ?? [];
+  const activeTailscale = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
+  const activeDevices = activeManual.length + activeTailscale.length;
+  const totalDevices = (devices.data?.length ?? 0) + (tailscaleDevices.data?.length ?? 0);
+  const healthyServices = services.data?.filter((service) => ["running", "online", "active"].includes(service.status.toLowerCase())).length ?? 0;
+  const openTasks = tasks.data?.filter((task) => !task.is_complete) ?? [];
+  const allOperational = Boolean(services.data?.length) && healthyServices === services.data?.length;
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  }, []);
+
+  const wake = async (deviceId: number, name: string) => {
+    setWolMessage(`Waking ${name}…`);
     try {
       await api.post("/api/wol/wake", { device_id: deviceId });
-      setWolMessage("Wake-on-LAN packet sent.");
+      setWolMessage(`Wake packet sent to ${name}.`);
     } catch (error) {
       setWolMessage(error instanceof Error ? error.message : "Wake failed");
     }
   };
 
   const wakeTailscale = async (device: TailscaleDevice) => {
+    setWolMessage(`Waking ${device.display_name}…`);
     try {
       await api.post(`/api/tailscale/devices/${device.id}/wake`);
-      setWolMessage(`Wake-on-LAN packet sent to ${device.display_name}.`);
+      setWolMessage(`Wake packet sent to ${device.display_name}.`);
     } catch (error) {
       setWolMessage(error instanceof Error ? error.message : "Wake failed");
     }
@@ -68,110 +74,81 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Operations</p>
-          <h1 className="page-title">Home systems at a glance</h1>
-          <p className="page-copy">Health, devices, and services stay visible first. Planner items and shortcuts sit behind the operational view.</p>
-        </div>
-      </div>
-
-      <Panel
-        title="System health"
-        action={
-          <span className="rounded-full border border-line bg-deep px-3 py-2 text-xs font-semibold text-muted">
-            {metrics.refreshing ? "Refreshing..." : metrics.updatedAt ? `Updated ${new Date(metrics.updatedAt).toLocaleTimeString()}` : "Waiting"}
-          </span>
-        }
+      <section
+        ref={heroRef}
+        className="command-hero"
+        onPointerMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          event.currentTarget.style.setProperty("--hero-x", `${((event.clientX - rect.left) / rect.width - 0.5) * 7}deg`);
+          event.currentTarget.style.setProperty("--hero-y", `${((event.clientY - rect.top) / rect.height - 0.5) * -5}deg`);
+        }}
+        onPointerLeave={(event) => {
+          event.currentTarget.style.setProperty("--hero-x", "0deg");
+          event.currentTarget.style.setProperty("--hero-y", "0deg");
+        }}
       >
-        {metrics.loading ? (
-          <SkeletonGrid />
-        ) : metrics.error || !metrics.data ? (
-          <p className="error-callout">{metrics.error ?? "Metrics unavailable."}</p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Metric label="CPU" value={`${metrics.data.cpu_percent.toFixed(0)}%`} detail={metrics.data.hostname} icon={Cpu} />
-            <Metric label="Memory" value={`${metrics.data.memory_percent.toFixed(0)}%`} detail={metrics.data.platform} icon={MemoryStick} />
-            <Metric label="Disk" value={`${metrics.data.disk_percent.toFixed(0)}%`} detail={metrics.data.local_ip ?? "No local IP"} icon={HardDrive} />
-            <Metric label="Temp" value={metrics.data.temperature_c ? `${metrics.data.temperature_c.toFixed(1)} C` : "N/A"} detail="Pi thermal reading" icon={Thermometer} />
+        <div className="command-hero__image" aria-hidden="true" />
+        <div className="command-hero__shade" />
+        <div className="command-hero__content">
+          <div className="hero-status"><span className={allOperational ? "bg-success" : "bg-warning"} /> {allOperational ? "All systems operational" : "Hub needs attention"}</div>
+          <p className="eyebrow eyebrow--light"><span /> Live home command</p>
+          <h1>{greeting}.<br /><em>Your home is online.</em></h1>
+          <p>One calm place to monitor your Pi, wake your desktop, run private services, and keep home maintenance moving.</p>
+          <div className="hero-actions">
+            <Link to="/devices" className="btn-hero"><Power size={17} /> Manage devices</Link>
+            <Link to="/services" className="btn-hero-secondary">View services <ArrowRight size={16} /></Link>
           </div>
-        )}
-      </Panel>
+        </div>
+        <div className="hero-facts" aria-label="Home overview">
+          <div><Wifi size={17} /><span><strong>{activeDevices}</strong> online</span></div>
+          <div><Server size={17} /><span><strong>{healthyServices}</strong> services healthy</span></div>
+          <div><Clock3 size={17} /><span><strong>{metrics.data ? formatUptime(metrics.data.uptime_seconds) : "—"}</strong> uptime</span></div>
+        </div>
+      </section>
 
-      <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel title="Active devices" description="Online manual and Tailscale devices that are reachable now.">
-          <div className="space-y-4">
-            {devices.loading || tailscaleDevices.loading ? <div className="skeleton h-24" /> : null}
-            {devices.error ? <p className="error-callout">{devices.error}</p> : null}
-            {activeManualDevices.map((device) => (
-              <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-semibold text-mist">{device.name}</p>
-                  <p className="mt-1 text-sm text-muted">{device.description ?? device.device_type}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <StatusPill status={device.status} />
-                  {device.supports_wol && device.id !== null ? (
-                    <button
-                      className="btn-secondary"
-                      onClick={() => {
-                        if (device.id !== null) {
-                          void wake(device.id);
-                        }
-                      }}
-                    >
-                      <Power size={16} />
-                      Wake
-                    </button>
-                  ) : null}
-                </div>
+      {metrics.loading ? <DashboardSkeleton /> : metrics.error || !metrics.data ? (
+        <div className="error-callout flex flex-wrap items-center justify-between gap-3"><span>{metrics.error ?? "System metrics are unavailable."}</span><button className="btn-secondary" onClick={() => void metrics.refetch()}>Try again</button></div>
+      ) : (
+        <section aria-labelledby="live-health-title">
+          <div className="section-heading"><div><p className="eyebrow"><span /> Raspberry Pi</p><h2 id="live-health-title">Live system health</h2></div><span className="refresh-label">{metrics.refreshing ? <span className="refresh-dot" /> : null}{metrics.refreshing ? "Refreshing" : `Updated ${new Date(metrics.updatedAt ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}</span></div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric label="CPU load" value={`${metrics.data.cpu_percent.toFixed(0)}%`} percent={metrics.data.cpu_percent} icon={Cpu} tone="cyan" />
+            <Metric label="Memory" value={`${metrics.data.memory_percent.toFixed(0)}%`} percent={metrics.data.memory_percent} icon={MemoryStick} tone="violet" />
+            <Metric label="Storage" value={`${metrics.data.disk_percent.toFixed(0)}%`} percent={metrics.data.disk_percent} icon={HardDrive} tone="mint" />
+            <Metric label="Temperature" value={metrics.data.temperature_c ? `${metrics.data.temperature_c.toFixed(1)}°C` : "N/A"} percent={metrics.data.temperature_c ? (metrics.data.temperature_c / 85) * 100 : null} icon={Thermometer} tone="amber" />
+          </div>
+        </section>
+      )}
+
+      <div className="dashboard-grid">
+        <Panel title="Active devices" description={`${activeDevices} of ${totalDevices} devices are reachable now.`} action={<Link className="panel-link" to="/devices">All devices <ArrowRight size={15} /></Link>}>
+          <div className="device-orbit-list">
+            {devices.loading || tailscaleDevices.loading ? <><div className="skeleton h-20" /><div className="skeleton h-20" /></> : null}
+            {devices.error || tailscaleDevices.error ? <p className="error-callout">{devices.error ?? tailscaleDevices.error}</p> : null}
+            {activeManual.slice(0, 3).map((device) => (
+              <div className="device-row" key={`manual-${device.id ?? device.name}`}>
+                <div className="device-avatar"><Monitor size={20} /></div><div className="min-w-0 flex-1"><p>{device.name}</p><span>{device.description ?? device.device_type}</span></div><StatusPill status="online" />
+                {device.supports_wol && device.id ? <button className="round-action" aria-label={`Wake ${device.name}`} onClick={() => void wake(device.id!, device.name)}><Power size={16} /></button> : null}
               </div>
             ))}
-            {tailscaleDevices.error ? <p className="error-callout">{tailscaleDevices.error}</p> : null}
-            {activeTailscaleDevices.map((device) => (
-              <div key={`tailscale-${device.id}`} className="raised-card flex flex-wrap items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-semibold text-mist">{device.display_name}</p>
-                  <p className="mt-1 text-sm text-muted">{device.hostname ?? device.machine_name} / {device.os ?? "Unknown OS"}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <StatusPill status={device.online ? "online" : "offline"} />
-                  {device.supports_wol && device.mac_address ? (
-                    <button
-                      className="btn-secondary"
-                      onClick={() => {
-                        void wakeTailscale(device);
-                      }}
-                    >
-                      <Power size={16} />
-                      Wake
-                    </button>
-                  ) : null}
-                </div>
+            {activeTailscale.slice(0, Math.max(0, 3 - activeManual.length)).map((device) => (
+              <div className="device-row" key={`tailscale-${device.id}`}>
+                <div className="device-avatar device-avatar--cyan"><Monitor size={20} /></div><div className="min-w-0 flex-1"><p>{device.display_name}</p><span>{device.os ?? "Tailscale device"}</span></div><StatusPill status="online" />
+                {device.supports_wol && device.mac_address ? <button className="round-action" aria-label={`Wake ${device.display_name}`} onClick={() => void wakeTailscale(device)}><Power size={16} /></button> : null}
               </div>
             ))}
-            {devicesLoaded && !hasActiveDevices ? <p className="empty-state">No active devices right now. Devices will appear here when they report online.</p> : null}
-            {hiddenDeviceCount > 0 ? (
-              <Link to="/devices" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-accent-focus">
-                {hiddenDeviceCount} inactive {hiddenDeviceCount === 1 ? "device" : "devices"} hidden
-                <ArrowRight size={16} />
-              </Link>
-            ) : null}
+            {!devices.loading && !tailscaleDevices.loading && activeDevices === 0 ? <p className="empty-state">No device is online right now. Check Tailscale sync or your LAN connection.</p> : null}
             {wolMessage ? <p className="info-callout">{wolMessage}</p> : null}
           </div>
         </Panel>
 
-        <Panel title="Service status" description="Current health for the local services exposed by PiHomeHub.">
-          <div className="space-y-3">
-            {services.loading ? <div className="skeleton h-24" /> : null}
+        <Panel title="Service constellation" description="Private tools running around your hub." action={<Link className="panel-link" to="/services">Manage <ArrowRight size={15} /></Link>}>
+          <div className="service-constellation">
+            {services.loading ? <div className="skeleton h-56" /> : null}
             {services.error ? <p className="error-callout">{services.error}</p> : null}
-            {services.data?.map((service) => (
-              <div key={service.slug} className="raised-card flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-semibold text-mist">{service.name}</p>
-                  <p className="mt-1 truncate text-sm text-muted">{service.detail}</p>
-                </div>
-                <StatusPill status={service.status} />
+            {services.data?.slice(0, 6).map((service, index) => (
+              <div className="service-node" key={service.slug} style={{ "--node-index": index } as React.CSSProperties}>
+                <span className="service-node__icon"><Server size={18} /></span><div><p>{service.name}</p><StatusPill status={service.status} /></div>
               </div>
             ))}
             {services.data?.length === 0 ? <p className="empty-state">No services are reporting status yet.</p> : null}
@@ -179,44 +156,25 @@ export function DashboardPage() {
         </Panel>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Planner" description="Open tasks kept secondary to the live operational panels.">
-          <div className="space-y-3">
-            {tasks.loading ? <div className="skeleton h-20" /> : null}
+      <div className="grid gap-5 xl:grid-cols-[.85fr_1.15fr]">
+        <Panel title="Next up" description="Your open home maintenance tasks." action={<Link className="panel-link" to="/planner">Planner <ArrowRight size={15} /></Link>}>
+          <div className="timeline-list">
+            {tasks.loading ? <div className="skeleton h-32" /> : null}
             {tasks.error ? <p className="error-callout">{tasks.error}</p> : null}
-            {tasks.data?.slice(0, 4).map((task) => (
-              <div key={task.id} className="raised-card">
-                <p className={`font-semibold ${task.is_complete ? "text-muted line-through" : "text-mist"}`}>{task.title}</p>
-                <p className="mt-1 text-sm text-muted">{task.due_label ?? "No due label"}</p>
-              </div>
-            ))}
-            {tasks.data?.length === 0 ? <p className="empty-state">No tasks yet.</p> : null}
-            {(tasks.data?.length ?? 0) > 4 ? (
-              <Link to="/planner" className="inline-flex items-center gap-2 text-sm font-semibold text-accent transition hover:text-accent-focus">
-                View all tasks
-                <ArrowRight size={16} />
-              </Link>
-            ) : null}
+            {openTasks.slice(0, 4).map((task, index) => <div className="timeline-item" key={task.id}><span>{index + 1}</span><div><p>{task.title}</p><small>{task.due_label ?? "Anytime"}</small></div></div>)}
+            {!tasks.loading && openTasks.length === 0 ? <p className="empty-state">Nothing pending. Your home queue is clear.</p> : null}
           </div>
         </Panel>
 
-        <Panel title="Quick links" description="Pinned dashboards and service entry points.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {links.loading ? <div className="skeleton h-28 sm:col-span-2" /> : null}
-            {links.error ? <p className="error-callout sm:col-span-2">{links.error}</p> : null}
-            {links.data?.map((link) => {
+        <Panel title="Launchpad" description="Jump directly into the tools your home runs." action={<Sparkles className="text-accent" size={18} />}>
+          <div className="launchpad-grid">
+            {links.loading ? <div className="skeleton col-span-full h-32" /> : null}
+            {links.error ? <p className="error-callout col-span-full">{links.error}</p> : null}
+            {links.data?.map((link, index) => {
               const resolvedUrl = resolveServiceLinkUrl(link.url);
-              return (
-                <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold text-mist">{link.name}</p>
-                    <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? resolvedUrl}</p>
-                </a>
-              );
+              return <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="launch-card"><span className={`launch-card__icon launch-card__icon--${index % 4}`}><Server size={20} /></span><div><p>{link.name}</p><small>{link.description ?? "Open dashboard"}</small></div><ExternalLink size={15} /></a>;
             })}
-            {links.data?.length === 0 ? <p className="empty-state sm:col-span-2">No dashboard links configured.</p> : null}
+            {links.data?.length === 0 ? <p className="empty-state col-span-full">No quick links configured yet.</p> : null}
           </div>
         </Panel>
       </div>

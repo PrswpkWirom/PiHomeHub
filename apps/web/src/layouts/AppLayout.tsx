@@ -1,123 +1,102 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { Home, ListChecks, LogOut, Monitor, Router, Settings, Server } from "lucide-react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Bell, Home, ListChecks, LogOut, Monitor, Search, Server, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { BrandMark } from "../components/BrandMark";
 import { OfflineIndicator } from "../components/OfflineIndicator";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
 
-const navItems: { to: string; label: string; icon: LucideIcon }[] = [
-  { to: "/dashboard", label: "Dashboard", icon: Home },
-  { to: "/devices", label: "Devices", icon: Monitor },
-  { to: "/services", label: "Services", icon: Server },
-  { to: "/planner", label: "Planner", icon: ListChecks },
-  { to: "/settings", label: "Settings", icon: Settings }
+const navItems: { to: string; label: string; shortLabel: string; icon: LucideIcon }[] = [
+  { to: "/dashboard", label: "Overview", shortLabel: "Home", icon: Home },
+  { to: "/devices", label: "Devices", shortLabel: "Devices", icon: Monitor },
+  { to: "/services", label: "Services", shortLabel: "Services", icon: Server },
+  { to: "/planner", label: "Planner", shortLabel: "Planner", icon: ListChecks },
+  { to: "/settings", label: "Settings", shortLabel: "Settings", icon: Settings }
 ];
 
 export function AppLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentPage = navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? "Overview";
+
+  const signOut = async () => {
+    await logout();
+    navigate("/login");
+  };
 
   return (
-    <div className="min-h-dvh bg-app text-mist">
-      <a href="#main-content" className="skip-link">
-        Skip to content
-      </a>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 border-r border-line bg-deep/90 px-5 py-6 backdrop-blur-xl lg:flex lg:flex-col">
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center rounded-[14px] border border-line bg-accent-soft text-accent">
-            <Router size={22} strokeWidth={2.2} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-muted">Private network</p>
-            <h1 className="font-display text-2xl font-semibold leading-tight tracking-[-0.01em] text-mist">PiHomeHub</h1>
-          </div>
-        </div>
-        <nav className="mt-8 grid gap-1.5" aria-label="Primary navigation">
+    <div className="app-shell min-h-dvh bg-app text-mist">
+      <a href="#main-content" className="skip-link">Skip to content</a>
+
+      <aside className="desktop-sidebar">
+        <BrandMark />
+        <nav className="sidebar-nav" aria-label="Primary navigation">
+          <p className="nav-section-label">Workspace</p>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `flex min-h-12 items-center gap-3 rounded-[14px] px-3 text-sm font-semibold transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus ${
-                    isActive
-                      ? "bg-accent text-white shadow-lift"
-                      : "text-muted hover:bg-accent-soft hover:text-mist"
-                  }`
-                }
-              >
-                <Icon size={18} strokeWidth={2.1} />
-                {item.label}
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? "nav-item--active" : ""}`}>
+                <Icon size={18} strokeWidth={2} />
+                <span>{item.label}</span>
+                <span className="nav-item__pip" />
               </NavLink>
             );
           })}
         </nav>
-        <div className="mt-auto grid gap-4">
+
+        <div className="sidebar-footer">
+          <div className="network-card">
+            <div className="network-card__orb"><span /></div>
+            <div>
+              <p className="text-sm font-semibold text-mist">Your home is private</p>
+              <p className="mt-1 text-xs leading-5 text-muted">Available on LAN &amp; Tailscale</p>
+            </div>
+          </div>
           <ThemeToggle />
-          <div className="rounded-[18px] border border-line bg-card/80 p-4">
-            <p className="text-xs text-muted">Signed in as</p>
-            <p className="mt-1 truncate text-sm font-semibold text-mist">{user?.username}</p>
-            <button
-              className="btn-secondary mt-4 w-full"
-              onClick={async () => {
-                await logout();
-                navigate("/login");
-              }}
-            >
-              <LogOut size={16} />
-              Sign out
-            </button>
+          <div className="user-card">
+            <div className="user-avatar">{user?.username?.slice(0, 1).toUpperCase() || "A"}</div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-mist">{user?.username}</p>
+              <p className="text-xs text-muted">Administrator</p>
+            </div>
+            <button className="icon-button h-9 w-9" aria-label="Sign out" onClick={() => void signOut()}><LogOut size={15} /></button>
           </div>
         </div>
       </aside>
 
-      <header className="sticky top-0 z-20 border-b border-line bg-deep/90 backdrop-blur-xl lg:hidden">
-        <div className="flex items-center justify-between gap-4 px-4 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] border border-line bg-accent-soft text-accent">
-              <Router size={20} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-muted">Private network</p>
-              <h1 className="truncate font-display text-xl font-semibold text-mist">PiHomeHub</h1>
-            </div>
+      <div className="lg:ml-[17.5rem]">
+        <header className="topbar">
+          <div className="lg:hidden"><BrandMark compact /></div>
+          <div className="hidden lg:block">
+            <p className="text-xs font-medium text-muted">PiHomeHub / <span className="text-mist">{currentPage}</span></p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <ThemeToggle compact />
-            <button
-              className="icon-button h-10 w-10"
-              aria-label="Sign out"
-              onClick={async () => {
-                await logout();
-                navigate("/login");
-              }}
-            >
-              <LogOut size={17} />
+          <div className="topbar-actions">
+            <button className="topbar-search" aria-label="Search (coming soon)" title="Search is coming soon">
+              <Search size={16} /><span>Search hub</span><kbd>⌘ K</kbd>
             </button>
+            <button className="icon-button h-10 w-10" aria-label="Notifications" title="No new notifications"><Bell size={17} /></button>
+            <div className="lg:hidden"><ThemeToggle compact /></div>
           </div>
-        </div>
-        <nav className="flex gap-2 overflow-x-auto px-4 pb-3" aria-label="Primary navigation">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus ${
-                  isActive ? "bg-accent text-white" : "border border-line bg-raised text-muted"
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </header>
+        </header>
 
-      <main id="main-content" className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:ml-72 lg:px-8 lg:py-10">
-        <Outlet />
-      </main>
+        <main id="main-content" className="main-content">
+          <Outlet />
+        </main>
+      </div>
+
+      <nav className="mobile-dock" aria-label="Primary navigation">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => `mobile-dock__item ${isActive ? "mobile-dock__item--active" : ""}`}>
+              <Icon size={20} strokeWidth={2} />
+              <span>{item.shortLabel}</span>
+            </NavLink>
+          );
+        })}
+      </nav>
       <OfflineIndicator />
     </div>
   );
