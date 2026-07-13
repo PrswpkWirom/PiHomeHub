@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import Request
@@ -47,3 +49,43 @@ def record_audit_event(
     db.commit()
     db.refresh(row)
     return row
+
+
+@contextmanager
+def audited_operation(
+    db: Session,
+    *,
+    event: str,
+    request: Request,
+    actor_user_id: int,
+    target_type: str,
+    target_identifier: str | int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> Iterator[None]:
+    """Record both outcomes of a privileged operation without leaking its inputs."""
+    try:
+        yield
+    except Exception:
+        db.rollback()
+        record_audit_event(
+            db,
+            event=event,
+            success=False,
+            request=request,
+            actor_user_id=actor_user_id,
+            target_type=target_type,
+            target_identifier=target_identifier,
+            metadata=metadata,
+        )
+        raise
+    else:
+        record_audit_event(
+            db,
+            event=event,
+            success=True,
+            request=request,
+            actor_user_id=actor_user_id,
+            target_type=target_type,
+            target_identifier=target_identifier,
+            metadata=metadata,
+        )

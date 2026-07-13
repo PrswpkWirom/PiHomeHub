@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, StrictInt
 
 
@@ -38,6 +40,10 @@ class ServicePortConfigRead(BaseModel):
     status: str
     detail: str
     has_pending_port_change: bool
+    deployment_mode: Literal["operator"]
+    configuration_mode: Literal["web", "operator"]
+    bindings_verified: bool
+    operator_command: str
     ports: list[ServicePortRead]
 
 

@@ -428,6 +428,55 @@ async def test_service_port_apply_requires_operator_redeployment(app):
         assert "operator-controlled" in response.text
 
 
+@pytest.mark.anyio
+async def test_service_port_config_exposes_only_fixed_operator_command(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post(
+            "/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"}
+        )
+        assert login_response.status_code == 200
+        with patch("app.services.service_ports._docker_running_ports", return_value={}):
+            response = await client.get("/api/services/ports")
+
+    assert response.status_code == 200
+    for config in response.json():
+        assert config["deployment_mode"] == "operator"
+        assert config["configuration_mode"] == "web"
+        assert config["bindings_verified"] is False
+        assert config["operator_command"].endswith(config["slug"])
+        assert config["slug"] in {"adguard-home", "gitea", "uptime-kuma", "vaultwarden", "mosquitto"}
+        assert ";" not in config["operator_command"]
+
+
+@pytest.mark.anyio
+async def test_stopped_service_bindings_still_report_pending_or_applied(app):
+    def old_bindings(slug: str):
+        return {(3000, "tcp"): 3001, (53, "tcp"): 69, (53, "udp"): 69} if slug == "adguard-home" else {}
+
+    def desired_bindings(slug: str):
+        return {(3000, "tcp"): 3001, (53, "tcp"): 53, (53, "udp"): 53} if slug == "adguard-home" else {}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+        with (
+            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("exited", "Exited")}),
+            patch("app.services.service_ports._docker_running_ports", side_effect=old_bindings),
+        ):
+            old = await client.get("/api/services/ports")
+        with (
+            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("exited", "Exited")}),
+            patch("app.services.service_ports._docker_running_ports", side_effect=desired_bindings),
+        ):
+            applied = await client.get("/api/services/ports")
+
+    old_adguard = next(config for config in old.json() if config["slug"] == "adguard-home")
+    applied_adguard = next(config for config in applied.json() if config["slug"] == "adguard-home")
+    assert old_adguard["bindings_verified"] is True
+    assert old_adguard["has_pending_port_change"] is True
+    assert applied_adguard["bindings_verified"] is True
+    assert applied_adguard["has_pending_port_change"] is False
+
+
 def test_default_compose_paths_support_docker_container_layout(tmp_path):
     from app.services.docker_service import _default_compose_paths
 

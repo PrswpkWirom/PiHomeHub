@@ -1,7 +1,7 @@
 import json
 from functools import lru_cache
 from urllib.parse import urlparse
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     trusted_proxy_ips: str = "127.0.0.1,::1"
     service_links_json: str = "[]"
     known_devices_json: str = "[]"
-
+    port_configuration_mode: Literal["web", "operator"] = "web"
     @property
     def is_production(self) -> bool:
         return self.env.lower() == "production"
@@ -100,6 +100,8 @@ class Settings(BaseSettings):
                 raise ValueError("production allowed origins must use HTTPS")
             if self.admin_password:
                 raise ValueError("production administrators must be created with the CLI, not environment passwords")
+            if self.port_configuration_mode != "operator":
+                raise ValueError("production service ports must be operator-managed")
         return self
 
 

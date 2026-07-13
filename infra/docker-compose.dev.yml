@@ -13,7 +13,7 @@ services:
 
   web:
     build: !reset null
-    image: node:20-alpine
+    image: node:20.19.5-alpine@sha256:6178e78b972f79c335df281f4b7674a2d85071aae2af020ffa39f0a770265435
     working_dir: /app
     command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
     environment:

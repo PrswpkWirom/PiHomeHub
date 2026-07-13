@@ -1,12 +1,15 @@
-import { AlertTriangle, ExternalLink, Info, RotateCcw, Save, Server } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, ClipboardCopy, ExternalLink, Info, RefreshCw, Save, Server } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
+import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
+import { usePendingPortPolling } from "../hooks/usePendingPortPolling";
 import type { ServiceActionResult, ServiceCapability, ServiceLink, ServicePortConfig, ServiceStatus } from "../types/api";
 import { resolveServiceLinkUrl } from "../utils/serviceLinks";
+import { resolvedPortFeedback } from "../utils/servicePortState";
 
 type ServiceInfo = {
   summary: string;
@@ -18,14 +21,8 @@ type ServiceInfo = {
 };
 
 type ActionMessage = {
-  kind: "success" | "error";
   serviceSlug: string;
-  text: string;
-};
-
-type PortMessage = {
-  kind: "success" | "error";
-  text: string;
+  feedback: Feedback;
 };
 
 const SERVICE_INFO: Record<string, ServiceInfo> = {
@@ -88,6 +85,10 @@ function actionLabel(action: string) {
   return action.charAt(0).toUpperCase() + action.slice(1);
 }
 
+function completedActionLabel(action: string) {
+  return ({ start: "started", stop: "stopped", restart: "restarted" } as Record<string, string>)[action] ?? `${action} completed`;
+}
+
 function formatProtocols(protocols: string[]) {
   return protocols.map((protocol) => protocol.toUpperCase()).join("/");
 }
@@ -118,12 +119,15 @@ function parsePortDrafts(config: ServicePortConfig, drafts: Record<string, strin
 type PortEditorProps = {
   config: ServicePortConfig | undefined;
   drafts: Record<string, string> | undefined;
-  message: PortMessage | undefined;
+  message: Feedback | undefined;
   saving: boolean;
-  applying: boolean;
+  checking: boolean;
+  pollingExpired: boolean;
   onDraftChange: (serviceSlug: string, portKey: string, value: string) => void;
   onSave: (config: ServicePortConfig) => void;
-  onApply: (config: ServicePortConfig) => void;
+  onCopyCommand: (config: ServicePortConfig) => void;
+  onCheckNow: (config: ServicePortConfig) => void;
+  onDismissMessage: (serviceSlug: string) => void;
 };
 
 function ServicePortEditor({
@@ -131,10 +135,13 @@ function ServicePortEditor({
   drafts,
   message,
   saving,
-  applying,
+  checking,
+  pollingExpired,
   onDraftChange,
   onSave,
-  onApply
+  onCopyCommand,
+  onCheckNow,
+  onDismissMessage
 }: PortEditorProps) {
   if (!config) {
     return null;
@@ -142,6 +149,7 @@ function ServicePortEditor({
 
   const pendingPorts = config.ports.filter((port) => port.pending);
   const hasPending = pendingPorts.length > 0;
+  const webEditable = config.configuration_mode === "web";
 
   return (
     <section className="mt-4 border-t border-line pt-4">
@@ -149,18 +157,22 @@ function ServicePortEditor({
         <div>
           <p className="text-sm font-semibold text-mist">Host ports</p>
           <p className="mt-1 text-xs leading-5 text-muted">
-            Desired ports are saved before Docker recreates the service.
+            {webEditable
+              ? "Desired ports are saved before Docker recreates the service."
+              : "Ports are operator-managed in this Docker deployment and shown here as read-only values."}
           </p>
         </div>
-        <button
-          className="btn-secondary min-h-9 px-3 py-1"
-          disabled={saving || applying}
-          type="button"
-          onClick={() => onSave(config)}
-        >
-          <Save size={15} />
-          {saving ? "Saving..." : "Save ports"}
-        </button>
+        {webEditable ? (
+          <button
+            className="btn-secondary min-h-9 px-3 py-1"
+            disabled={saving || checking}
+            type="button"
+            onClick={() => onSave(config)}
+          >
+            <Save size={15} />
+            {saving ? "Saving..." : "Save ports"}
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -174,6 +186,7 @@ function ServicePortEditor({
               className="input-field"
               inputMode="numeric"
               pattern="[0-9]*"
+              disabled={!webEditable}
               value={drafts?.[port.key] ?? String(port.desired_host_port)}
               onChange={(event) => onDraftChange(config.slug, port.key, event.target.value)}
               aria-label={`${config.name} ${port.label} host port`}
@@ -185,9 +198,11 @@ function ServicePortEditor({
         ))}
       </div>
 
-      {message ? (
-        <p className={`mt-3 ${message.kind === "error" ? "error-callout" : "info-callout"}`}>{message.text}</p>
-      ) : null}
+      <FeedbackMessage
+        feedback={message}
+        className="mt-3"
+        onDismiss={() => onDismissMessage(config.slug)}
+      />
 
       {hasPending ? (
         <div className="warning-callout mt-4">
@@ -198,14 +213,31 @@ function ServicePortEditor({
                 Pending service port change
               </p>
               <p className="mt-2">
-                {config.name} is still using its running Docker bindings. Recreate this service to apply the saved
-                desired ports.
+                {config.name} is still using its configured Docker bindings. Apply the saved ports with the operator
+                command below; PiHomeHub will detect completion automatically.
               </p>
             </div>
-            <button className="btn-primary shrink-0" disabled={applying || saving} type="button" onClick={() => onApply(config)}>
-              <RotateCcw size={16} />
-              {applying ? "Recreating..." : `Recreate ${config.name}`}
-            </button>
+          </div>
+          <div className="mt-4 rounded-[12px] border border-warning/30 bg-deep/70 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Operator command</p>
+            <code className="mt-2 block overflow-x-auto whitespace-nowrap font-mono text-xs text-mist">
+              {config.operator_command}
+            </code>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn-secondary min-h-9 px-3 py-1" type="button" onClick={() => onCopyCommand(config)}>
+                <ClipboardCopy size={15} />
+                Copy command
+              </button>
+              <button
+                className="btn-secondary min-h-9 px-3 py-1"
+                disabled={checking || saving}
+                type="button"
+                onClick={() => onCheckNow(config)}
+              >
+                <RefreshCw className={checking ? "animate-spin" : ""} size={15} />
+                {checking ? "Checking..." : "Check now"}
+              </button>
+            </div>
           </div>
           <div className="mt-3 grid gap-2">
             {pendingPorts.map((port) => (
@@ -218,8 +250,10 @@ function ServicePortEditor({
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs font-semibold text-muted">
-            Keep pending is automatic. The current ports stay active until you recreate the service.
+          <p className="mt-3 text-xs font-semibold text-muted" role="status" aria-live="polite">
+            {pollingExpired
+              ? "Automatic checks paused after 2 minutes. Use Check now after redeploying."
+              : "Checking every 5 seconds. Current ports stay active until Docker Compose recreates the service."}
           </p>
         </div>
       ) : null}
@@ -235,9 +269,11 @@ export function ServicesPage() {
   const [runningAction, setRunningAction] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
   const [portDrafts, setPortDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [portMessages, setPortMessages] = useState<Record<string, PortMessage>>({});
+  const [portMessages, setPortMessages] = useState<Record<string, Feedback>>({});
   const [savingPortsFor, setSavingPortsFor] = useState<string | null>(null);
-  const [applyingPortsFor, setApplyingPortsFor] = useState<string | null>(null);
+  const [checkingPortsFor, setCheckingPortsFor] = useState<string | null>(null);
+  const pendingOrigins = useRef<Map<string, ServicePortConfig>>(new Map());
+  const [awaitingVerification, setAwaitingVerification] = useState<Set<string>>(new Set());
   const capabilitiesBySlug = new Map((capabilities.data ?? []).map((capability) => [capability.slug, capability]));
   const portConfigsBySlug = useMemo(
     () => new Map((portConfigs.data ?? []).map((config) => [config.slug, config])),
@@ -260,21 +296,120 @@ export function ServicesPage() {
     });
   }, [portConfigs.data]);
 
+  const dismissPortMessage = useCallback((serviceSlug: string) => {
+    setPortMessages((current) => {
+      const next = { ...current };
+      delete next[serviceSlug];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!portConfigs.data) {
+      return;
+    }
+    for (const config of portConfigs.data) {
+      if (config.has_pending_port_change) {
+        pendingOrigins.current.set(config.slug, config);
+        setAwaitingVerification((current) => {
+          const next = new Set(current);
+          next.delete(config.slug);
+          return next;
+        });
+        setPortMessages((messages) => {
+          if (!messages[config.slug]?.text.includes("temporarily unavailable")) {
+            return messages;
+          }
+          const next = { ...messages };
+          delete next[config.slug];
+          return next;
+        });
+        continue;
+      }
+      const origin = pendingOrigins.current.get(config.slug);
+      if (!origin) {
+        continue;
+      }
+      if (!config.bindings_verified) {
+        setAwaitingVerification((current) => new Set([...current, config.slug]));
+        setPortMessages((messages) => ({
+          ...messages,
+          [config.slug]: {
+            kind: "warning",
+            persistent: true,
+            text: `${config.name} is temporarily unavailable while Docker bindings are being verified.`
+          }
+        }));
+        continue;
+      }
+      const resolution = resolvedPortFeedback(origin, config);
+      if (resolution) {
+        setPortMessages((messages) => ({ ...messages, [config.slug]: resolution }));
+      }
+      pendingOrigins.current.delete(config.slug);
+      setAwaitingVerification((current) => {
+        const next = new Set(current);
+        next.delete(config.slug);
+        return next;
+      });
+    }
+  }, [portConfigs.data]);
+
+  const pendingSlugs = useMemo(
+    () => Array.from(new Set([
+      ...(portConfigs.data ?? []).filter((config) => config.has_pending_port_change).map((config) => config.slug),
+      ...awaitingVerification
+    ])),
+    [awaitingVerification, portConfigs.data]
+  );
+  const pollPendingPorts = useCallback(
+    () => Promise.all([portConfigs.refetch(), statuses.refetch()]),
+    [portConfigs.refetch, statuses.refetch]
+  );
+  const {
+    expiredSlugs: pollingExpired,
+    error: pollingError,
+    retry: retryPendingPortPoll
+  } = usePendingPortPolling(pendingSlugs, pollPendingPorts);
+
   const runServiceAction = async (service: ServiceStatus, action: string) => {
     const key = `${service.slug}:${action}`;
     setRunningAction(key);
     setActionMessage(null);
     try {
       const result = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${action}`);
-      setActionMessage({ kind: "success", serviceSlug: service.slug, text: result.message });
-      await statuses.refetch();
-      await portConfigs.refetch();
+      if (!result.ok) {
+        throw new Error(`${service.name} rejected the ${action} request.`);
+      }
+      try {
+        const refreshed = await statuses.refetch();
+        void portConfigs.refetch().catch(() => undefined);
+        const current = refreshed.find((item) => item.slug === service.slug);
+        const verified = action === "stop"
+          ? current !== undefined && ["exited", "stopped"].includes(current.status)
+          : current?.status === "running";
+        setActionMessage({
+          serviceSlug: service.slug,
+          feedback: verified
+            ? { kind: "success", text: `${service.name} ${completedActionLabel(action)}.` }
+            : {
+                kind: "warning",
+                persistent: true,
+                text: `${service.name} accepted the ${action} request, but its latest status is ${current?.status ?? "unknown"}. Check again before retrying.`
+              }
+        });
+      } catch (refreshError) {
+        setActionMessage({
+          serviceSlug: service.slug,
+          feedback: {
+            kind: "warning",
+            persistent: true,
+            text: `${service.name} accepted the ${action} request, but status verification failed: ${refreshError instanceof Error ? refreshError.message : "status unavailable"}.`
+          }
+        });
+      }
     } catch (error) {
-      setActionMessage({
-        kind: "error",
-        serviceSlug: service.slug,
-        text: error instanceof Error ? error.message : "Service action failed."
-      });
+      setActionMessage({ serviceSlug: service.slug, feedback: errorFeedback(error, `${service.name} action failed.`) });
     } finally {
       setRunningAction(null);
     }
@@ -303,22 +438,55 @@ export function ServicesPage() {
       return next;
     });
 
+    let ports: Record<string, number>;
     try {
-      const ports = parsePortDrafts(config, portDrafts[config.slug]);
+      ports = parsePortDrafts(config, portDrafts[config.slug]);
+    } catch (error) {
+      setPortMessages((current) => ({
+        ...current,
+        [config.slug]: {
+          kind: "error",
+          persistent: true,
+          text: error instanceof Error ? error.message : "Enter a valid host port."
+        }
+      }));
+      setSavingPortsFor(null);
+      return;
+    }
+
+    try {
       const updated = await api.patch<ServicePortConfig>(`/api/services/${config.slug}/ports`, { ports });
       portConfigs.setData((current) => (current ?? []).map((item) => (item.slug === updated.slug ? updated : item)));
       setPortDrafts((current) => ({
         ...current,
         [updated.slug]: Object.fromEntries(updated.ports.map((port) => [port.key, String(port.desired_host_port)]))
       }));
+      const savedMappings = updated.ports
+        .filter((port) => port.key in ports)
+        .map((port) => `${port.label} ${formatProtocols(port.protocols)} ${port.desired_host_port}`)
+        .join(", ");
+      const saveFeedback: Feedback = updated.has_pending_port_change
+        ? {
+            kind: "success",
+            persistent: true,
+            text: `${updated.name}: ${savedMappings} saved. Run the operator command to apply the change.`
+          }
+        : updated.bindings_verified && updated.status === "running"
+          ? { kind: "success", text: `${updated.name}: ${savedMappings} saved and already active.` }
+          : updated.bindings_verified
+            ? {
+                kind: "warning",
+                persistent: true,
+                text: `${updated.name}: ${savedMappings} saved and configured, but the service is not running.`
+              }
+            : {
+                kind: "success",
+                persistent: true,
+                text: `${updated.name}: ${savedMappings} saved. PiHomeHub will verify the bindings when the service is available.`
+              };
       setPortMessages((current) => ({
         ...current,
-        [config.slug]: {
-          kind: "success",
-          text: updated.has_pending_port_change
-            ? "Ports saved. Recreate the service when you are ready to apply them."
-            : "Ports saved."
-        }
+        [config.slug]: saveFeedback
       }));
     } catch (error) {
       setPortMessages((current) => ({
@@ -333,39 +501,32 @@ export function ServicesPage() {
     }
   };
 
-  const applyPendingPorts = async (config: ServicePortConfig) => {
-    const confirmed = window.confirm(
-      `Recreate ${config.name} now to apply the pending port changes? The service may be briefly unavailable.`
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setApplyingPortsFor(config.slug);
-    setPortMessages((current) => {
-      const next = { ...current };
-      delete next[config.slug];
-      return next;
-    });
-
+  const checkPendingPorts = async (config: ServicePortConfig) => {
+    setCheckingPortsFor(config.slug);
     try {
-      const result = await api.post<ServiceActionResult>(`/api/services/${config.slug}/ports/apply`);
-      setPortMessages((current) => ({
-        ...current,
-        [config.slug]: { kind: "success", text: result.message }
-      }));
-      await statuses.refetch();
-      await portConfigs.refetch();
+      await retryPendingPortPoll();
     } catch (error) {
       setPortMessages((current) => ({
         ...current,
-        [config.slug]: {
-          kind: "error",
-          text: error instanceof Error ? error.message : "Service could not be recreated."
-        }
+        [config.slug]: errorFeedback(error, `${config.name} status could not be checked.`)
       }));
     } finally {
-      setApplyingPortsFor(null);
+      setCheckingPortsFor(null);
+    }
+  };
+
+  const copyOperatorCommand = async (config: ServicePortConfig) => {
+    try {
+      await navigator.clipboard.writeText(config.operator_command);
+      setPortMessages((current) => ({
+        ...current,
+        [config.slug]: { kind: "success", text: `${config.name} redeployment command copied.` }
+      }));
+    } catch (error) {
+      setPortMessages((current) => ({
+        ...current,
+        [config.slug]: errorFeedback(error, "The command could not be copied. Select and copy it manually.")
+      }));
     }
   };
 
@@ -387,8 +548,18 @@ export function ServicesPage() {
             <div className="skeleton h-28" />
           </div>
         ) : null}
-        {statuses.error ? <p className="error-callout">{statuses.error}</p> : null}
-        {portConfigs.error ? <p className="error-callout">{portConfigs.error}</p> : null}
+        <FeedbackMessage
+          feedback={statuses.error ? { kind: "error", persistent: true, text: statuses.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void statuses.refetch()}>Retry service status</button>}
+        />
+        <FeedbackMessage
+          feedback={portConfigs.error ? { kind: "error", persistent: true, text: portConfigs.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void portConfigs.refetch()}>Retry port status</button>}
+        />
+        <FeedbackMessage
+          feedback={pollingError ? { kind: "error", persistent: true, text: `Automatic port check failed: ${pollingError}` } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void retryPendingPortPoll().catch(() => undefined)}>Retry pending port check</button>}
+        />
         <div className="space-y-4">
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
@@ -427,19 +598,24 @@ export function ServicesPage() {
                   </div>
                 ) : null}
                 {actionMessage?.serviceSlug === service.slug ? (
-                  <p className={`mt-3 ${actionMessage.kind === "error" ? "error-callout" : "info-callout"}`}>
-                    {actionMessage.text}
-                  </p>
+                  <FeedbackMessage
+                    feedback={actionMessage.feedback}
+                    className="mt-3"
+                    onDismiss={() => setActionMessage(null)}
+                  />
                 ) : null}
                 <ServicePortEditor
                   config={portConfig}
                   drafts={portDrafts[service.slug]}
                   message={portMessages[service.slug]}
                   saving={savingPortsFor === service.slug}
-                  applying={applyingPortsFor === service.slug}
+                  checking={checkingPortsFor === service.slug}
+                  pollingExpired={pollingExpired.has(service.slug)}
                   onDraftChange={updatePortDraft}
                   onSave={(config) => void savePorts(config)}
-                  onApply={(config) => void applyPendingPorts(config)}
+                  onCopyCommand={(config) => void copyOperatorCommand(config)}
+                  onCheckNow={(config) => void checkPendingPorts(config)}
+                  onDismissMessage={dismissPortMessage}
                 />
                 {info ? (
                   <details className="group mt-4 border-t border-line pt-4">
@@ -476,7 +652,10 @@ export function ServicesPage() {
       </Panel>
       <Panel title="Dashboards" description="Open linked service dashboards in a new browser context.">
         {links.loading ? <div className="skeleton h-28" /> : null}
-        {links.error ? <p className="error-callout">{links.error}</p> : null}
+        <FeedbackMessage
+          feedback={links.error ? { kind: "error", persistent: true, text: links.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void links.refetch()}>Retry dashboard links</button>}
+        />
         <div className="grid gap-4">
           {links.data?.map((link) => {
             const resolvedUrl = resolveServiceLinkUrl(link.url);

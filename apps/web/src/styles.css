@@ -151,9 +151,21 @@ button:disabled { cursor: not-allowed; }
   .empty-state { @apply rounded-2xl border border-dashed border-line bg-deep p-5 text-sm leading-6 text-muted; }
   .error-callout { @apply rounded-2xl border border-danger/35 bg-danger/10 p-4 text-sm leading-6 text-danger; }
   .info-callout { @apply rounded-2xl border border-accent/30 bg-accent-soft p-4 text-sm leading-6 text-mist; }
+  .success-callout { @apply rounded-2xl border border-success/35 bg-success/10 p-4 text-sm leading-6 text-success; }
   .warning-callout { @apply rounded-2xl border border-warning/40 bg-warning/10 p-4 text-sm leading-6 text-mist; }
+  .feedback-message { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 500ms ease, margin-block-start 500ms ease, margin-block-end 500ms ease; }
+  .feedback-message__clip { min-height: 0; overflow: hidden; }
+  .feedback-message__surface { opacity: 1; transform: translateY(0); transition: opacity 500ms ease, transform 500ms ease; }
+  .feedback-message[data-feedback-state="exiting"] { grid-template-rows: 0fr; }
+  .feedback-message[data-feedback-state="exiting"] .feedback-message__surface { opacity: 0; transform: translateY(-4px); }
   .mono-value { @apply font-mono text-sm tabular-nums text-mist; }
 }
 
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .feedback-message,
+  .feedback-message__surface { transition: none; }
+  .feedback-message[data-feedback-state="exiting"] { grid-template-rows: 1fr; }
+  .feedback-message[data-feedback-state="exiting"] .feedback-message__surface { opacity: 1; transform: none; }
+}
 @media (max-width: 639px) { .command-hero__image { background-position: 61% center; } .command-hero__shade { background: linear-gradient(90deg,rgb(4 14 12/.97),rgb(4 14 12/.52)),linear-gradient(0deg,rgb(4 14 12/.95),transparent 62%); } }

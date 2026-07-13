@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import ExitStack
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient as RawAsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -14,6 +16,27 @@ from app.core.security import hash_password, utc_now
 from app.database.db import Base
 from app.models.user import AuditEvent, SessionToken, User
 from app.tests.conftest import AsyncClient
+
+
+PRIVILEGED_ROUTES = [
+    ("GET", "/api/admin/audit-events", None),
+    ("POST", "/api/devices", {"name": "matrix-device", "device_type": "desktop", "supports_wol": False}),
+    ("PATCH", "/api/devices/1", {"name": "matrix-device"}),
+    ("DELETE", "/api/devices/1", None),
+    ("PATCH", "/api/services/adguard-home/ports", {"ports": {"dns": 5353}}),
+    ("POST", "/api/services/adguard-home/ports/apply", None),
+    ("POST", "/api/services/adguard-home/actions/start", None),
+    ("POST", "/api/services/adguard-home/actions/stop", None),
+    ("POST", "/api/services/adguard-home/actions/restart", None),
+    ("POST", "/api/tailscale/settings", {"tailnet": "example.com"}),
+    ("POST", "/api/tailscale/test", None),
+    ("POST", "/api/tailscale/sync", None),
+    ("PATCH", "/api/tailscale/devices/1/wol", {"supports_wol": False}),
+    ("PATCH", "/api/tailscale/devices/1/settings", {"supports_wol": False}),
+    ("POST", "/api/tailscale/devices/1/wake", None),
+    ("POST", "/api/wol/wake", {"device_id": 1}),
+    ("PATCH", "/api/admin/users/1", {"is_admin": False}),
+]
 
 
 async def _login(client: AsyncClient, username: str = "admin", password: str = "Test-secret-123!"):
@@ -46,6 +69,14 @@ def test_bootstrap_never_creates_administrator_from_legacy_environment(tmp_path,
         assert test_session.query(User).count() == 0
     finally:
         test_session.close()
+
+
+def test_new_users_are_viewers_unless_privilege_is_explicit():
+    user = User(username="new-user", password_hash="not-persisted")
+    assert user.is_admin is None  # SQLAlchemy applies column defaults during INSERT.
+    default = User.__table__.c.is_admin.default
+    assert default is not None
+    assert default.arg is False
 
 
 def _add_viewer(app) -> User:
@@ -182,27 +213,59 @@ async def test_expired_idle_absolute_revoked_deleted_and_disabled_sessions_are_r
 @pytest.mark.anyio
 async def test_viewer_is_denied_for_every_privileged_route(app):
     _add_viewer(app)
-    routes = [
-        ("POST", "/api/devices", {"name": "x", "device_type": "desktop", "supports_wol": False}),
-        ("PATCH", "/api/devices/1", {"name": "x"}),
-        ("DELETE", "/api/devices/1", None),
-        ("PATCH", "/api/services/adguard-home/ports", {"ports": {"dns": 5353}}),
-        ("POST", "/api/services/adguard-home/ports/apply", None),
-        ("POST", "/api/services/adguard-home/actions/start", None),
-        ("POST", "/api/tailscale/settings", {"tailnet": "example.com"}),
-        ("POST", "/api/tailscale/test", None),
-        ("POST", "/api/tailscale/sync", None),
-        ("PATCH", "/api/tailscale/devices/1/wol", {"supports_wol": False}),
-        ("PATCH", "/api/tailscale/devices/1/settings", {"supports_wol": False}),
-        ("POST", "/api/tailscale/devices/1/wake", None),
-        ("POST", "/api/wol/wake", {"device_id": 1}),
-        ("PATCH", "/api/admin/users/1", {"is_admin": False}),
-    ]
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         await _login(client, "viewer", "Viewer-password-123!")
-        for method, path, body in routes:
+        for method, path, body in PRIVILEGED_ROUTES:
             response = await client.request(method, path, json=body)
             assert response.status_code == 403, (method, path, response.text)
+
+
+@pytest.mark.anyio
+async def test_anonymous_and_disabled_admin_are_denied_for_every_privileged_route(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as anonymous:
+        for method, path, body in PRIVILEGED_ROUTES:
+            response = await anonymous.request(method, path, json=body)
+            assert response.status_code == 401, ("anonymous", method, path, response.text)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as disabled:
+        await _login(disabled)
+        db = app.state.testing_session_local()
+        try:
+            db.query(User).filter(User.username == "admin").update({User.is_active: False})
+            db.commit()
+        finally:
+            db.close()
+        for method, path, body in PRIVILEGED_ROUTES:
+            response = await disabled.request(method, path, json=body)
+            assert response.status_code == 401, ("disabled", method, path, response.text)
+
+
+@pytest.mark.anyio
+async def test_recent_admin_passes_authorization_for_every_privileged_route(app):
+    unavailable = HTTPException(status_code=404, detail="Fixture operation unavailable")
+    async_unavailable = AsyncMock(side_effect=unavailable)
+    with ExitStack() as stack:
+        stack.enter_context(patch("app.api.services.update_service_port_config", side_effect=unavailable))
+        stack.enter_context(patch("app.api.services.recreate_service", side_effect=unavailable))
+        stack.enter_context(
+            patch(
+                "app.api.services.run_service_action",
+                return_value={"slug": "adguard-home", "action": "start", "ok": True, "message": "ok"},
+            )
+        )
+        stack.enter_context(patch("app.api.tailscale.save_tailscale_settings", side_effect=unavailable))
+        stack.enter_context(patch("app.api.tailscale.test_tailscale_connection", async_unavailable))
+        stack.enter_context(patch("app.api.tailscale.sync_tailscale_devices", async_unavailable))
+        stack.enter_context(patch("app.api.tailscale.update_tailscale_wol", side_effect=unavailable))
+        stack.enter_context(patch("app.api.tailscale.update_tailscale_device_settings", side_effect=unavailable))
+        stack.enter_context(patch("app.api.tailscale.wake_tailscale_device", side_effect=unavailable))
+        stack.enter_context(patch("app.api.wol.wake_device", return_value=None))
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as admin:
+            await _login(admin)
+            for method, path, body in PRIVILEGED_ROUTES:
+                response = await admin.request(method, path, json=body)
+                assert response.status_code not in {401, 403}, (method, path, response.text)
 
 
 @pytest.mark.anyio
@@ -255,6 +318,32 @@ async def test_logout_all_revokes_every_session(app):
 
 
 @pytest.mark.anyio
+async def test_session_listing_removes_expired_sessions(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        await _login(client)
+        db = app.state.testing_session_local()
+        try:
+            expired = SessionToken(
+                user_id=db.query(User).filter(User.username == "admin").one().id,
+                token_hash="e" * 64,
+                csrf_token_hash="c" * 64,
+                created_at=utc_now() - timedelta(days=8),
+                last_seen_at=utc_now() - timedelta(days=1),
+                expires_at=utc_now() - timedelta(seconds=1),
+                authentication_time=utc_now() - timedelta(days=8),
+            )
+            db.add(expired)
+            db.commit()
+            expired_id = expired.id
+        finally:
+            db.close()
+
+        response = await client.get("/api/auth/sessions")
+        assert response.status_code == 200
+        assert all(row["id"] != expired_id for row in response.json())
+
+
+@pytest.mark.anyio
 async def test_account_disablement_revokes_existing_sessions(app):
     viewer_user = _add_viewer(app)
     viewer = AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
@@ -300,6 +389,40 @@ async def test_audit_events_are_sanitized_and_admin_only(app):
 
 
 @pytest.mark.anyio
+async def test_privileged_operations_log_success_and_failure(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        await _login(client)
+        created = await client.post(
+            "/api/devices",
+            json={"name": "Audited device", "device_type": "desktop", "supports_wol": False},
+        )
+        assert created.status_code == 201
+        failed = await client.delete("/api/devices/999999")
+        assert failed.status_code == 404
+        with patch("app.services.docker_service.request_service_action", return_value={"ok": True}):
+            action = await client.post("/api/services/adguard-home/actions/restart")
+        assert action.status_code == 200
+
+    db = app.state.testing_session_local()
+    try:
+        events = {(row.event, row.success) for row in db.query(AuditEvent).all()}
+    finally:
+        db.close()
+    assert ("device_create", True) in events
+    assert ("device_delete", False) in events
+    assert ("service_restart", True) in events
+
+
+def test_trusted_proxy_matching_supports_explicit_addresses_and_cidr():
+    from app.core.middleware import _is_trusted_proxy
+
+    assert _is_trusted_proxy("172.30.0.2", ["172.30.0.2"])
+    assert _is_trusted_proxy("172.30.0.2", ["172.30.0.0/24"])
+    assert not _is_trusted_proxy("172.30.0.3", ["172.30.0.2"])
+    assert not _is_trusted_proxy("not-an-ip", ["172.30.0.2"])
+
+
+@pytest.mark.anyio
 async def test_control_agent_errors_do_not_leak_secrets_to_response_or_logs(app, caplog):
     from app.services.control_agent_client import ControlAgentError
 
@@ -325,9 +448,21 @@ def test_production_configuration_fails_closed_and_cookie_name_is_host_prefixed(
         public_base_url="https://pi.example",
         allowed_origins="https://pi.example",
         admin_password="",
+        port_configuration_mode="operator",
     )
     assert settings.cookie_name == "__Host-pihomehub_session"
     assert settings.cookie_secure is True
+
+
+def test_desired_ports_follow_live_compose_env_file(tmp_path, monkeypatch):
+    from app.services.service_ports import _desired_ports
+
+    env_file = tmp_path / "infra.env"
+    monkeypatch.setattr("app.services.service_ports._compose_env_file", lambda: env_file)
+    env_file.write_text("ADGUARD_DNS_PORT=69\n")
+    assert _desired_ports()["adguard-home"]["dns"] == 69
+    env_file.write_text("ADGUARD_DNS_PORT=53\n")
+    assert _desired_ports()["adguard-home"]["dns"] == 53
 
 
 def test_production_cookie_is_secure(monkeypatch):
@@ -340,6 +475,7 @@ def test_production_cookie_is_secure(monkeypatch):
     monkeypatch.setenv("PIHOMEHUB_PUBLIC_BASE_URL", "https://pi.example")
     monkeypatch.setenv("PIHOMEHUB_ALLOWED_ORIGINS", "https://pi.example")
     monkeypatch.setenv("PIHOMEHUB_ADMIN_PASSWORD", "")
+    monkeypatch.setenv("PIHOMEHUB_PORT_CONFIGURATION_MODE", "operator")
     get_settings.cache_clear()
     response = Response()
     _set_session_cookie(response, "raw-session", "raw-csrf")
@@ -362,6 +498,7 @@ async def test_production_docs_are_disabled_and_hsts_is_enabled(monkeypatch):
     monkeypatch.setenv("PIHOMEHUB_PUBLIC_BASE_URL", "https://pi.example")
     monkeypatch.setenv("PIHOMEHUB_ALLOWED_ORIGINS", "https://pi.example")
     monkeypatch.setenv("PIHOMEHUB_ADMIN_PASSWORD", "")
+    monkeypatch.setenv("PIHOMEHUB_PORT_CONFIGURATION_MODE", "operator")
     get_settings.cache_clear()
     production_app = create_app(include_lifespan=False)
     async with RawAsyncClient(transport=ASGITransport(app=production_app), base_url="https://pi.example") as client:

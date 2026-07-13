@@ -234,7 +234,8 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
                 protocol: running.get((definition.container_port, protocol))
                 for protocol in definition.protocols
             }
-            pending = state == "running" and any(
+            binding_verified = all(running_port is not None for running_port in running_host_ports.values())
+            pending = binding_verified and any(
                 running_port != desired_host_port
                 for running_port in running_host_ports.values()
             )
@@ -260,6 +261,17 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
                 status=state,
                 detail=detail,
                 has_pending_port_change=has_pending,
+                deployment_mode="operator",
+                configuration_mode=get_settings().port_configuration_mode,
+                bindings_verified=all(
+                    running_port is not None
+                    for port in ports
+                    for running_port in port.running_host_ports.values()
+                ),
+                operator_command=(
+                    "docker compose -f infra/docker-compose.yml --profile home-services "
+                    f"up -d --no-deps --force-recreate {slug}"
+                ),
                 ports=ports,
             )
         )
@@ -268,10 +280,10 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
 
 
 def update_service_port_config(_: Session, slug: str, payload: ServicePortConfigUpdate) -> ServicePortConfigRead:
-    if get_settings().is_production:
+    if get_settings().port_configuration_mode != "web":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Production port changes are operator-managed; edit infra/.env and redeploy with Docker Compose",
+            detail="Port changes are operator-managed in this deployment; edit infra/.env and redeploy with Docker Compose",
         )
     definitions = {definition.key: definition for definition in SERVICE_PORTS.get(slug, ())}
     if not definitions:

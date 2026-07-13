@@ -11,13 +11,21 @@ services:
       PIHOMEHUB_PUBLIC_BASE_URL: ${PIHOMEHUB_PUBLIC_BASE_URL:-}
       PIHOMEHUB_ALLOWED_ORIGINS: ${PIHOMEHUB_ALLOWED_ORIGINS:-}
       PIHOMEHUB_CONTROL_AGENT_URL: http://control-agent:9000
-      PIHOMEHUB_TRUSTED_PROXY_IPS: ${PIHOMEHUB_TRUSTED_PROXY_IPS:-172.16.0.0/12}
+      PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.2
       PIHOMEHUB_HOST_PROC_NET_PATH: /host/proc/net
+      PIHOMEHUB_COMPOSE_ENV_FILE: /run/pihomehub/infra.env
+      PIHOMEHUB_PORT_CONFIGURATION_MODE: operator
     expose:
       - "8000"
     volumes:
       - backend-data:/data
       - /proc/net:/host/proc/net:ro
+      - type: bind
+        source: ./.env
+        target: /run/pihomehub/infra.env
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       - control-agent
     networks:
@@ -38,6 +46,8 @@ services:
       - "9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
     networks:
       - control
     restart: unless-stopped
@@ -57,7 +67,7 @@ services:
       - no-new-privileges:true
 
   caddy:
-    image: caddy:2.8-alpine
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     environment:
       PIHOMEHUB_HOST: ${PIHOMEHUB_HOST:-localhost}
     ports:
@@ -70,13 +80,14 @@ services:
       - web
       - backend
     networks:
-      - edge
+      edge:
+        ipv4_address: 172.30.0.2
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
 
   adguard-home:
-    image: adguard/adguardhome:latest
+    image: adguard/adguardhome:v0.107.77@sha256:e6f2b8bcda06064ab055b44933a4f0e983c35558b9cdb8d2e7ab1efcee36d890
     container_name: adguard-home
     profiles: [home-services]
     ports:
@@ -89,7 +100,7 @@ services:
     restart: unless-stopped
 
   gitea:
-    image: docker.gitea.com/gitea:1
+    image: docker.gitea.com/gitea:1.26.4@sha256:8e25c717b8f748445e15ec46e0390f577cb628101184cb0a150d1dae126c1f39
     container_name: gitea
     profiles: [home-services]
     environment:
@@ -103,7 +114,7 @@ services:
     restart: unless-stopped
 
   uptime-kuma:
-    image: louislam/uptime-kuma:2
+    image: louislam/uptime-kuma:2.4.0@sha256:91e963bfda569ba115206e843febb446f473ab525add4e08b2b9e3beffa16985
     container_name: uptime-kuma
     profiles: [home-services]
     ports:
@@ -113,7 +124,7 @@ services:
     restart: unless-stopped
 
   vaultwarden:
-    image: vaultwarden/server:latest
+    image: vaultwarden/server:1.36.0@sha256:d626d04934cd1192ad8ced1adb975099fca78cec33ab467d2d3c923cde7f3b0c
     container_name: vaultwarden
     profiles: [home-services]
     ports:
@@ -123,7 +134,7 @@ services:
     restart: unless-stopped
 
   mosquitto:
-    image: eclipse-mosquitto:2
+    image: eclipse-mosquitto:2.1.2-alpine@sha256:6f8d8a947c506f8a2290ec65cd4bd2bc7cb4d43fb5f6271f861cb013e2ef9797
     container_name: mosquitto
     profiles: [mqtt]
     ports:
@@ -137,6 +148,9 @@ services:
 
 networks:
   edge:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   control:
     internal: true
 

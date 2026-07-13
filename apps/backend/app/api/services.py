@@ -12,7 +12,7 @@ from app.schemas.services import (
 )
 from app.services.auth_service import get_current_user, require_recent_admin
 from app.models.user import User
-from app.services.audit_service import record_audit_event
+from app.services.audit_service import audited_operation
 from app.services.docker_service import get_service_capabilities, get_service_statuses, recreate_service, run_service_action
 from app.services.links_service import get_service_links
 from app.services.service_ports import get_service_port_configs, update_service_port_config
@@ -41,13 +41,27 @@ async def service_ports(db: Session = Depends(get_db)):
 
 
 @router.patch("/{slug}/ports", response_model=ServicePortConfigRead, dependencies=[Depends(require_recent_admin)])
-async def update_service_ports(slug: str, payload: ServicePortConfigUpdate, db: Session = Depends(get_db)):
-    return update_service_port_config(db, slug, payload)
+async def update_service_ports(
+    slug: str, payload: ServicePortConfigUpdate, request: Request,
+    db: Session = Depends(get_db), actor: User = Depends(require_recent_admin),
+):
+    with audited_operation(
+        db, event="service_port_configuration", request=request, actor_user_id=actor.id,
+        target_type="service", target_identifier=slug,
+    ):
+        return update_service_port_config(db, slug, payload)
 
 
 @router.post("/{slug}/ports/apply", response_model=ServiceActionResult, dependencies=[Depends(require_recent_admin)])
-async def apply_service_ports(slug: str, db: Session = Depends(get_db)):
-    return recreate_service(db, slug)
+async def apply_service_ports(
+    slug: str, request: Request, db: Session = Depends(get_db),
+    actor: User = Depends(require_recent_admin),
+):
+    with audited_operation(
+        db, event="service_port_apply", request=request, actor_user_id=actor.id,
+        target_type="service", target_identifier=slug,
+    ):
+        return recreate_service(db, slug)
 
 
 @router.post("/{slug}/actions/{action}", response_model=ServiceActionResult)
@@ -58,26 +72,9 @@ async def service_action(
     db: Session = Depends(get_db),
     actor: User = Depends(require_recent_admin),
 ):
-    try:
+    with audited_operation(
+        db, event=f"service_{action}", request=request, actor_user_id=actor.id,
+        target_type="service", target_identifier=slug,
+    ):
         result = run_service_action(db, slug, action)
-    except Exception:
-        record_audit_event(
-            db,
-            event=f"service_{action}",
-            success=False,
-            request=request,
-            actor_user_id=actor.id,
-            target_type="service",
-            target_identifier=slug,
-        )
-        raise
-    record_audit_event(
-        db,
-        event=f"service_{action}",
-        success=True,
-        request=request,
-        actor_user_id=actor.id,
-        target_type="service",
-        target_identifier=slug,
-    )
     return result

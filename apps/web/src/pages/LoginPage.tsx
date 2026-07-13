@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowRight, LockKeyhole, ShieldCheck, Wifi } from "lucide-react";
 
 import { BrandMark } from "../components/BrandMark";
+import { FeedbackMessage } from "../components/FeedbackMessage";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -45,10 +46,10 @@ export function LoginPage() {
             <p className="mt-3 text-sm leading-6 text-muted">Sign in to open your private command center.</p>
           </div>
           <div className="mt-8 grid gap-4">
-            <label className="field-label">Username<input className="input-field" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
-            <label className="field-label">Password<input className="input-field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
+            <label className="field-label">Username<input className="input-field" value={username} onChange={(e) => { setUsername(e.target.value); setError(null); }} autoComplete="username" /></label>
+            <label className="field-label">Password<input className="input-field" type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(null); }} autoComplete="current-password" /></label>
           </div>
-          {error ? <p className="error-callout mt-4" role="alert">{error}</p> : null}
+          <FeedbackMessage className="mt-4" feedback={error ? { kind: "error", persistent: true, text: error } : null} />
           <button className="btn-primary mt-6 w-full" disabled={submitting}>
             {submitting ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Signing in…</> : <><LockKeyhole size={17} /> Enter PiHomeHub <ArrowRight size={16} /></>}
           </button>

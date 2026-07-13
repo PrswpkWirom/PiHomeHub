@@ -127,6 +127,10 @@ export type ServicePortConfig = {
   status: string;
   detail: string;
   has_pending_port_change: boolean;
+  deployment_mode: "operator";
+  configuration_mode: "web" | "operator";
+  bindings_verified: boolean;
+  operator_command: string;
   ports: ServicePort[];
 };
 

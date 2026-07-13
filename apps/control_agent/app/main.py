@@ -82,7 +82,12 @@ def _inspect(slug: str) -> dict:
     state = payload.get("State", {})
     state_name = str(state.get("Status", "unknown"))[:32]
     ports = []
-    for binding, host_bindings in (payload.get("NetworkSettings", {}).get("Ports", {}) or {}).items():
+    configured_bindings = (
+        payload.get("NetworkSettings", {}).get("Ports", {})
+        or payload.get("HostConfig", {}).get("PortBindings", {})
+        or {}
+    )
+    for binding, host_bindings in configured_bindings.items():
         if "/" not in binding:
             continue
         container_raw, protocol = binding.split("/", 1)

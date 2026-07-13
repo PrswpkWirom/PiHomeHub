@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { CheckCircle2, KeyRound, RefreshCw, Save, ServerCog, Wifi } from "lucide-react";
 
 import { api } from "../api/client";
+import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Field } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
@@ -12,17 +13,24 @@ export function SettingsPage() {
   const [status, setStatus] = useState<TailscaleStatus | null>(null);
   const [apiToken, setApiToken] = useState("");
   const [tailnet, setTailnet] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<Feedback | null>(null);
+  const [statusError, setStatusError] = useState<Feedback | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadStatus = async () => {
-    const nextStatus = await api.get<TailscaleStatus>("/api/tailscale/status");
-    setStatus(nextStatus);
-    setTailnet(nextStatus.tailnet ?? "");
+    try {
+      const nextStatus = await api.get<TailscaleStatus>("/api/tailscale/status");
+      setStatus(nextStatus);
+      setTailnet(nextStatus.tailnet ?? "");
+      setStatusError(null);
+    } catch (error) {
+      setStatusError({ ...errorFeedback(error, "Tailscale status could not be loaded."), persistent: true });
+      throw error;
+    }
   };
 
   useEffect(() => {
-    void loadStatus();
+    void loadStatus().catch(() => undefined);
   }, []);
 
   const save = async (event: FormEvent) => {
@@ -38,9 +46,9 @@ export function SettingsPage() {
       invalidateCache("/api/tailscale/devices");
       invalidateCache("/api/tailscale/status");
       setApiToken("");
-      setMessage("Tailscale settings saved.");
+      setMessage({ kind: "success", text: `Tailscale settings saved for ${nextStatus.tailnet ?? tailnet}.` });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to save Tailscale settings.");
+      setMessage(errorFeedback(error, "Tailscale settings could not be saved."));
     } finally {
       setBusy(false);
     }
@@ -51,9 +59,13 @@ export function SettingsPage() {
     setMessage(null);
     try {
       const result = await api.post<TailscaleConnectionResult>("/api/tailscale/test");
-      setMessage(result.message);
+      setMessage(
+        result.ok
+          ? { kind: "success", text: `Tailscale connection test completed: ${result.message}` }
+          : { kind: "error", text: `Tailscale connection test failed: ${result.message}` }
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Connection test failed.");
+      setMessage(errorFeedback(error, "Tailscale connection test failed."));
     } finally {
       setBusy(false);
     }
@@ -66,10 +78,10 @@ export function SettingsPage() {
       const devices = await api.post<TailscaleDevice[]>("/api/tailscale/sync");
       setCachedData<TailscaleDevice[]>("/api/tailscale/devices", devices);
       invalidateCache("/api/tailscale/status");
-      await loadStatus();
-      setMessage(`Synced ${devices.length} Tailscale devices.`);
+      await loadStatus().catch(() => undefined);
+      setMessage({ kind: "success", text: `Tailscale sync completed for ${devices.length} devices.` });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Tailscale sync failed.");
+      setMessage(errorFeedback(error, "Tailscale device sync failed."));
     } finally {
       setBusy(false);
     }
@@ -104,20 +116,30 @@ export function SettingsPage() {
               <p className="mt-2 font-mono text-sm tabular-nums text-mist">{status?.last_sync_at ?? "Never"}</p>
             </div>
           </div>
-          {status?.last_sync_error ? <p className="error-callout">Last error: {status.last_sync_error}</p> : null}
+          {status?.last_sync_error ? (
+            <FeedbackMessage feedback={{
+              kind: "warning",
+              persistent: true,
+              text: `Previous sync error${status.last_sync_at ? ` (last sync ${status.last_sync_at})` : ""}: ${status.last_sync_error}`
+            }} />
+          ) : null}
+          <FeedbackMessage
+            feedback={statusError}
+            action={<button className="btn-secondary" type="button" onClick={() => void loadStatus().catch(() => undefined)}>Retry Tailscale status</button>}
+          />
           <Field
             label="API token"
             help={status?.token_saved ? "Token saved. Enter a new token only when replacing it." : "Paste a Tailscale API token."}
             type="password"
             value={apiToken}
-            onChange={(event) => setApiToken(event.target.value)}
+            onChange={(event) => { setApiToken(event.target.value); setMessage(null); }}
             autoComplete="off"
           />
           <Field
             label="Tailnet"
             help="Use your tailnet name, example.com, or - for the default account."
             value={tailnet}
-            onChange={(event) => setTailnet(event.target.value)}
+            onChange={(event) => { setTailnet(event.target.value); setMessage(null); }}
             required
           />
           <div className="flex flex-wrap gap-3">
@@ -134,7 +156,7 @@ export function SettingsPage() {
               Sync devices now
             </button>
           </div>
-          {message ? <p className="info-callout">{message}</p> : null}
+          <FeedbackMessage feedback={message} onDismiss={() => setMessage(null)} />
         </form>
       </Panel>
 
@@ -142,7 +164,7 @@ export function SettingsPage() {
       <Panel title="Access model">
         <div className="raised-card flex gap-3">
           <KeyRound className="mt-0.5 shrink-0 text-accent" size={20} />
-          <p className="text-sm leading-6 text-muted">PiHomeHub uses a single admin account and private access through LAN or Tailscale. Tailscale tokens are write-only in the UI and are never displayed after saving.</p>
+          <p className="text-sm leading-6 text-muted">PiHomeHub supports administrator and viewer accounts over private LAN or Tailscale access. Tailscale tokens are write-only in the UI and are never displayed after saving.</p>
         </div>
       </Panel>
       <Panel title="Deployment notes">

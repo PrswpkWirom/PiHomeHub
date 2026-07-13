@@ -1,7 +1,8 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Edit3, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Edit3, LockKeyhole, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
+import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Field, TextareaField } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
@@ -83,10 +84,13 @@ export function DevicesPage() {
   const [editingManualId, setEditingManualId] = useState<number | null>(null);
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
   const [settingsForm, setSettingsForm] = useState<TailscaleDeviceSettingsWrite>(emptyTailscaleSettings);
-  const [message, setMessage] = useState<string | null>(null);
-  const [manualMessage, setManualMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<Feedback | null>(null);
+  const [manualMessage, setManualMessage] = useState<Feedback | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
+  const [tailscaleScrollRequest, setTailscaleScrollRequest] = useState(0);
+  const tailscaleSettingsRef = useRef<HTMLFormElement>(null);
+  const manualSettingsRef = useRef<HTMLFormElement>(null);
   const setTailscaleData = tailscale.setData;
   const editingTailscaleDevice = tailscale.data?.find((device) => device.id === editingTailscaleId) ?? null;
 
@@ -111,11 +115,11 @@ export function DevicesPage() {
       lastTailscaleSyncLabel = timestamp;
       setLastSyncAt(timestamp);
       if (!silent) {
-        setMessage(`Synced ${synced.length} Tailscale devices at ${timestamp}.`);
+        setMessage({ kind: "success", text: `Tailscale sync completed for ${synced.length} devices at ${timestamp}.` });
       }
     } catch (error) {
       if (!silent) {
-        setMessage(error instanceof Error ? error.message : "Tailscale sync failed.");
+        setMessage(errorFeedback(error, "Tailscale device sync failed."));
       }
     } finally {
       tailscaleSyncPromise = null;
@@ -129,6 +133,22 @@ export function DevicesPage() {
     }
   }, [syncTailscale, tailscale.data, tailscale.loading]);
 
+  useEffect(() => {
+    if (!editingTailscaleDevice || tailscaleScrollRequest === 0) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const settingsPanel = tailscaleSettingsRef.current;
+      if (!settingsPanel) {
+        return;
+      }
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      settingsPanel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      settingsPanel.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editingTailscaleDevice, tailscaleScrollRequest]);
+
   const saveManual = async (event: FormEvent) => {
     event.preventDefault();
     const payload = cleanDevice(manualForm);
@@ -137,16 +157,16 @@ export function DevicesPage() {
       if (editingManualId) {
         const updated = await api.patch<DeviceSummary>(`/api/devices/${editingManualId}`, payload);
         manual.setData((current) => (current ?? []).map((device) => (device.id === editingManualId ? updated : device)));
-        setManualMessage({ kind: "success", text: "Manual device updated." });
+        setManualMessage({ kind: "success", text: `${updated.name} device settings saved.` });
       } else {
         const created = await api.post<DeviceSummary>("/api/devices", payload);
         manual.setData((current) => [...(current ?? []), created]);
-        setManualMessage({ kind: "success", text: "Manual device added." });
+        setManualMessage({ kind: "success", text: `${created.name} added to manual devices.` });
       }
       setManualForm(emptyManualDevice);
       setEditingManualId(null);
     } catch (error) {
-      setManualMessage({ kind: "error", text: error instanceof Error ? error.message : "Manual device save failed." });
+      setManualMessage(errorFeedback(error, "Manual device settings could not be saved."));
     }
   };
 
@@ -165,16 +185,28 @@ export function DevicesPage() {
       supports_wol: device.supports_wol,
       description: device.description ?? ""
     });
+    window.requestAnimationFrame(() => {
+      const settingsPanel = manualSettingsRef.current;
+      if (!settingsPanel) {
+        return;
+      }
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      settingsPanel.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      settingsPanel.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+    });
   };
 
-  const deleteManual = async (deviceId: number) => {
+  const deleteManual = async (device: DeviceSummary) => {
+    if (!device.id) {
+      return;
+    }
     setManualMessage(null);
     try {
-      await api.delete(`/api/devices/${deviceId}`);
-      manual.setData((current) => (current ?? []).filter((device) => device.id !== deviceId));
-      setManualMessage({ kind: "success", text: "Manual device deleted." });
+      await api.delete(`/api/devices/${device.id}`);
+      manual.setData((current) => (current ?? []).filter((item) => item.id !== device.id));
+      setManualMessage({ kind: "success", text: `${device.name} deleted from manual devices.` });
     } catch (error) {
-      setManualMessage({ kind: "error", text: error instanceof Error ? error.message : "Manual device delete failed." });
+      setManualMessage(errorFeedback(error, `${device.name} could not be deleted.`));
     }
   };
 
@@ -188,6 +220,7 @@ export function DevicesPage() {
       broadcast_address: device.broadcast_address ?? "",
       note: device.note ?? ""
     });
+    setTailscaleScrollRequest((request) => request + 1);
   };
 
   const closeTailscaleSettings = () => {
@@ -200,24 +233,30 @@ export function DevicesPage() {
     if (!editingTailscaleId) {
       return;
     }
-    const updated = await api.patch<TailscaleDevice>(`/api/tailscale/devices/${editingTailscaleId}/settings`, {
-      display_name: settingsForm.display_name || null,
-      supports_wol: settingsForm.supports_wol,
-      mac_address: settingsForm.mac_address || null,
-      lan_ip_address: settingsForm.lan_ip_address || null,
-      broadcast_address: settingsForm.broadcast_address || null,
-      note: settingsForm.note || null
-    });
-    tailscale.setData((current) => (current ?? []).map((device) => (device.id === editingTailscaleId ? updated : device)));
-    closeTailscaleSettings();
+    setMessage(null);
+    try {
+      const updated = await api.patch<TailscaleDevice>(`/api/tailscale/devices/${editingTailscaleId}/settings`, {
+        display_name: settingsForm.display_name || null,
+        supports_wol: settingsForm.supports_wol,
+        mac_address: settingsForm.mac_address || null,
+        lan_ip_address: settingsForm.lan_ip_address || null,
+        broadcast_address: settingsForm.broadcast_address || null,
+        note: settingsForm.note || null
+      });
+      tailscale.setData((current) => (current ?? []).map((device) => (device.id === editingTailscaleId ? updated : device)));
+      setMessage({ kind: "success", text: `${updated.display_name} device settings saved.` });
+      closeTailscaleSettings();
+    } catch (error) {
+      setMessage(errorFeedback(error, `${editingTailscaleDevice?.display_name ?? "Tailscale device"} settings could not be saved.`));
+    }
   };
 
   const wakeTailscale = async (device: TailscaleDevice) => {
     try {
       await api.post(`/api/tailscale/devices/${device.id}/wake`);
-      setMessage(`Wake packet sent to ${device.display_name}.`);
+      setMessage({ kind: "success", text: `Wake packet sent to ${device.display_name}.` });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Wake failed.");
+      setMessage(errorFeedback(error, `Wake request for ${device.display_name} failed.`));
     }
   };
 
@@ -248,7 +287,10 @@ export function DevicesPage() {
         }
       >
         {tailscale.loading ? <LoadingRows /> : null}
-        {tailscale.error ? <p className="error-callout">{tailscale.error}</p> : null}
+        <FeedbackMessage
+          feedback={tailscale.error ? { kind: "error", persistent: true, text: tailscale.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void tailscale.refetch()}>Retry Tailscale devices</button>}
+        />
         <div className="space-y-4">
           {tailscale.data?.map((device) => (
             <div key={device.id} className="raised-card grid gap-4 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center">
@@ -276,7 +318,11 @@ export function DevicesPage() {
           {tailscale.data?.length === 0 ? <p className="empty-state">No Tailscale devices synced yet. Add the API token in Settings and run sync.</p> : null}
         </div>
         {editingTailscaleDevice ? (
-          <form className="mt-5 grid gap-5 rounded-[18px] border border-accent/25 bg-deep p-5" onSubmit={saveTailscaleSettings}>
+          <form
+            ref={tailscaleSettingsRef}
+            className="mt-5 grid scroll-mt-6 gap-5 rounded-[18px] border border-accent/25 bg-deep p-5"
+            onSubmit={saveTailscaleSettings}
+          >
             <Field
               id="tailscale-display-name"
               label="Display name"
@@ -285,8 +331,15 @@ export function DevicesPage() {
               onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
             />
 
-            <section className="grid gap-3">
-              <h3 className="text-sm font-semibold text-mist">Tailscale information</h3>
+            <section className="grid gap-3 rounded-[18px] border border-line/70 bg-card/30 p-4" aria-label="Read-only Tailscale information">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-muted">Tailscale information</h3>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-deep/60 px-2.5 py-1 text-xs font-semibold text-muted">
+                  <LockKeyhole size={13} />
+                  Read only
+                </span>
+              </div>
+              <p className="text-xs leading-5 text-muted">These values come from Tailscale and cannot be changed in PiHomeHub.</p>
               <div className="grid gap-3 md:grid-cols-2">
                 {[
                   ["Tailscale name", editingTailscaleDevice.machine_name],
@@ -301,9 +354,9 @@ export function DevicesPage() {
                   ["Last seen", editingTailscaleDevice.last_seen],
                   ["Last synced", editingTailscaleDevice.last_synced_at]
                 ].map(([label, value]) => (
-                  <div key={label as string} className="rounded-[14px] border border-line bg-card/70 px-4 py-3">
+                  <div key={label as string} className="rounded-[14px] border border-line/70 bg-deep/40 px-4 py-3">
                     <p className="text-xs font-semibold text-muted">{label}</p>
-                    <p className="mt-1 break-all text-sm text-mist">{detailValue(value as string | string[] | null)}</p>
+                    <p className="mt-1 break-all text-sm text-muted">{detailValue(value as string | string[] | null)}</p>
                   </div>
                 ))}
               </div>
@@ -332,13 +385,16 @@ export function DevicesPage() {
             </div>
           </form>
         ) : null}
-        {message ? <p className="info-callout mt-4">{message}</p> : null}
+        <FeedbackMessage feedback={message} className="mt-4" onDismiss={() => setMessage(null)} />
       </Panel>
 
       <Panel title="Manual devices" description="LAN devices you add and maintain directly in PiHomeHub.">
         {manual.loading ? <LoadingRows /> : null}
-        {manual.error ? <p className="error-callout">{manual.error}</p> : null}
-        <form className="mb-5 grid gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
+        <FeedbackMessage
+          feedback={manual.error ? { kind: "error", persistent: true, text: manual.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void manual.refetch()}>Retry manual devices</button>}
+        />
+        <form ref={manualSettingsRef} className="mb-5 grid scroll-mt-6 gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Name" value={manualForm.name} onChange={(event) => setManualForm({ ...manualForm, name: event.target.value })} required />
             <Field label="Device type" value={manualForm.device_type} onChange={(event) => setManualForm({ ...manualForm, device_type: event.target.value })} />
@@ -361,11 +417,7 @@ export function DevicesPage() {
             ) : null}
           </div>
         </form>
-        {manualMessage ? (
-          <p className={manualMessage.kind === "error" ? "error-callout mb-4" : "info-callout mb-4"}>
-            {manualMessage.text}
-          </p>
-        ) : null}
+        <FeedbackMessage feedback={manualMessage} className="mb-4" onDismiss={() => setManualMessage(null)} />
         <div className="space-y-4">
           {manual.data?.map((device) => (
             <div key={`${device.name}-${device.id ?? "local"}`} className="raised-card grid gap-3 md:grid-cols-[1.2fr_0.8fr_0.8fr] md:items-center">
@@ -385,7 +437,7 @@ export function DevicesPage() {
                       <Edit3 size={16} />
                       Edit
                     </button>
-                    <button className="btn-danger" onClick={() => void deleteManual(device.id!)}>
+                    <button className="btn-danger" onClick={() => void deleteManual(device)}>
                       <Trash2 size={16} />
                       Delete
                     </button>

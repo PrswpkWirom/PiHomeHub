@@ -43,4 +43,29 @@ describe("API CSRF handling", () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect((init.headers as Headers).has("X-CSRF-Token")).toBe(false);
   });
+
+  it("requests password step-up when recent authentication has expired", async () => {
+    const dispatch = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent: dispatch });
+    vi.stubGlobal("CustomEvent", class {
+      type: string;
+      constructor(type: string) {
+        this.type = type;
+      }
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Recent authentication required" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        })
+      )
+    );
+
+    await expect(api.post("/api/services/adguard-home/actions/start")).rejects.toThrow(
+      "Recent authentication required"
+    );
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: "pihomehub:recent-auth-required" }));
+  });
 });

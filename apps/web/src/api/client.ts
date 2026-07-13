@@ -38,6 +38,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const parsed = JSON.parse(body) as { detail?: unknown };
       if (typeof parsed.detail === "string") {
         message = parsed.detail;
+        if (response.status === 403 && parsed.detail === "Recent authentication required") {
+          window.dispatchEvent(new CustomEvent("pihomehub:recent-auth-required"));
+        }
       }
     } catch {
       // Keep the raw response body when the server does not return JSON.

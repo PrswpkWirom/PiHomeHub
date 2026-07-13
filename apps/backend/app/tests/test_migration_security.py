@@ -74,6 +74,7 @@ def test_production_database_without_admin_fails_closed(tmp_path):
             "PIHOMEHUB_PUBLIC_BASE_URL": "https://pi.example",
             "PIHOMEHUB_ALLOWED_ORIGINS": "https://pi.example",
             "PIHOMEHUB_ADMIN_PASSWORD": "",
+            "PIHOMEHUB_PORT_CONFIGURATION_MODE": "operator",
         }
     )
     result = subprocess.run(

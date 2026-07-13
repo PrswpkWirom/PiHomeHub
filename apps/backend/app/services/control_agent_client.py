@@ -22,7 +22,7 @@ def _signature(method: str, path: str, body: bytes, timestamp: str, nonce: str) 
     ).hexdigest()
 
 
-def _request(method: str, path: str) -> dict[str, Any]:
+def _request(method: str, path: str, *, timeout: float = 8.0) -> dict[str, Any]:
     body = b""
     timestamp = str(int(time.time()))
     nonce = secrets.token_urlsafe(18)
@@ -32,7 +32,7 @@ def _request(method: str, path: str) -> dict[str, Any]:
         "X-Control-Signature": _signature(method, path, body, timestamp, nonce),
     }
     try:
-        with httpx.Client(base_url=get_settings().control_agent_url, timeout=8.0) as client:
+        with httpx.Client(base_url=get_settings().control_agent_url, timeout=timeout) as client:
             response = client.request(method, path, content=body, headers=headers)
     except httpx.HTTPError as exc:
         raise ControlAgentError("Control agent is unavailable") from exc
@@ -56,4 +56,7 @@ def get_service_snapshot() -> list[dict[str, Any]]:
 
 
 def request_service_action(slug: str, action: str) -> dict[str, Any]:
-    return _request("POST", f"/v1/services/{slug}/{action}")
+    # The agent allows Docker lifecycle operations up to 120 seconds. Keep the
+    # caller alive slightly longer so it never reports failure while Docker is
+    # still changing state.
+    return _request("POST", f"/v1/services/{slug}/{action}", timeout=125.0)

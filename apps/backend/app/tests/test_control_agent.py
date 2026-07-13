@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import importlib.util
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -82,6 +83,21 @@ async def test_control_agent_uses_fixed_argument_array(control_agent):
     assert "shell" not in docker.call_args.kwargs
 
 
+def test_control_agent_reports_configured_bindings_for_stopped_container(control_agent):
+    payload = [{
+        "State": {"Status": "exited"},
+        "NetworkSettings": {"Ports": None},
+        "HostConfig": {"PortBindings": {"53/tcp": [{"HostPort": "53"}], "53/udp": [{"HostPort": "53"}]}},
+    }]
+    with patch.object(control_agent.subprocess, "run") as docker:
+        docker.return_value.returncode = 0
+        docker.return_value.stdout = json.dumps(payload)
+        result = control_agent._inspect("adguard-home")
+
+    assert result["status"] == "exited"
+    assert {(port["protocol"], port["host_port"]) for port in result["ports"]} == {("tcp", 53), ("udp", 53)}
+
+
 @pytest.mark.anyio
 async def test_control_agent_timeout_is_sanitized(control_agent):
     path = "/v1/services/adguard-home/start"
@@ -94,3 +110,15 @@ async def test_control_agent_timeout_is_sanitized(control_agent):
             response = await client.post(path, headers=_headers("POST", path, nonce="timeout-nonce"))
     assert response.status_code == 504
     assert "secret" not in response.text
+
+
+def test_backend_waits_for_agent_action_timeout_contract():
+    from app.services.control_agent_client import request_service_action
+
+    with patch("app.services.control_agent_client.httpx.Client") as client_class:
+        response = client_class.return_value.__enter__.return_value.request.return_value
+        response.status_code = 200
+        response.json.return_value = {"ok": True}
+        request_service_action("adguard-home", "restart")
+
+    assert client_class.call_args.kwargs["timeout"] == 125.0

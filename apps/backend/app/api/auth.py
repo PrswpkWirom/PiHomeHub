@@ -174,6 +174,7 @@ async def list_sessions(
     current: SessionToken = Depends(get_current_session),
     user: User = Depends(require_authenticated_user),
 ):
+    cleanup_expired_sessions(db)
     rows = db.query(SessionToken).filter(SessionToken.user_id == user.id, SessionToken.revoked_at.is_(None)).all()
     return [
         SessionRead(
