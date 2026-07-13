@@ -15,11 +15,7 @@ export default {
         ink: "rgb(var(--color-ink) / <alpha-value>)",
         accent: "rgb(var(--color-accent) / <alpha-value>)",
         "accent-focus": "rgb(var(--color-accent-focus) / <alpha-value>)",
-        "accent-on-dark": "rgb(var(--color-accent-on-dark) / <alpha-value>)",
-        "accent-fill": "rgb(var(--color-accent-fill) / <alpha-value>)",
-        "accent-fill-focus": "rgb(var(--color-accent-fill-focus) / <alpha-value>)",
         "accent-soft": "rgb(var(--color-accent-soft) / <alpha-value>)",
-        "control-line": "rgb(var(--color-control-line) / <alpha-value>)",
         success: "rgb(var(--color-success) / <alpha-value>)",
         warning: "rgb(var(--color-warning) / <alpha-value>)",
         danger: "rgb(var(--color-danger) / <alpha-value>)"

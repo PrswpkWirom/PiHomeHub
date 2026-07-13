@@ -24,15 +24,15 @@ export function LoginPage() {
 
   return (
     <main className="relative grid min-h-dvh bg-app text-mist lg:grid-cols-[1.08fr_.92fr]">
-      <section className="relative hidden min-h-dvh overflow-hidden bg-black lg:block">
+      <section className="relative hidden min-h-dvh overflow-hidden bg-[#061411] lg:block">
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: "url('/assets/pihomehub-hero.webp')" }} />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-black/20 to-black/75" />
-        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-black to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#061411]/30 via-[#061411]/20 to-[#061411]/75" />
+        <div className="absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-[#061411] to-transparent" />
         <div className="absolute inset-x-10 bottom-10 text-white xl:inset-x-16 xl:bottom-14">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold backdrop-blur"><span className="h-2 w-2 rounded-full bg-accent-on-dark shadow-[0_0_12px_rgb(var(--color-accent-on-dark))]" /> Local-first home intelligence</div>
-          <h1 className="max-w-xl font-display text-5xl font-extrabold leading-[.98] tracking-[-.055em] xl:text-6xl">Your private home.<br /><span className="text-accent-on-dark">Under your control.</span></h1>
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold backdrop-blur"><span className="h-2 w-2 rounded-full bg-[#5be0bd] shadow-[0_0_12px_#5be0bd]" /> Local-first home intelligence</div>
+          <h1 className="max-w-xl font-display text-5xl font-extrabold leading-[.98] tracking-[-.055em] xl:text-6xl">Your private home.<br /><span className="text-[#73e2c7]">Under your control.</span></h1>
           <p className="mt-5 max-w-lg text-base leading-7 text-white/60">Monitor devices, manage services, and keep your home running—without exposing it to the public internet.</p>
-          <div className="mt-8 flex gap-5 text-sm text-white/60"><span className="flex items-center gap-2"><ShieldCheck size={17} className="text-accent-on-dark" /> Private by design</span><span className="flex items-center gap-2"><Wifi size={17} className="text-accent-on-dark" /> LAN + Tailscale</span></div>
+          <div className="mt-8 flex gap-5 text-sm text-white/60"><span className="flex items-center gap-2"><ShieldCheck size={17} className="text-[#73e2c7]" /> Private by design</span><span className="flex items-center gap-2"><Wifi size={17} className="text-[#73e2c7]" /> LAN + Tailscale</span></div>
         </div>
       </section>
 
