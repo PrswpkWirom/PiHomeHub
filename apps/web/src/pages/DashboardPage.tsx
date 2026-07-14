@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, Clock3, Cpu, ExternalLink, HardDrive, MemoryStick, Monitor, Power, Server, Sparkles, Thermometer, Wifi } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -39,7 +39,6 @@ export function DashboardPage() {
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const tasks = useFetch<TaskItem[]>("/api/tasks");
   const [wolMessage, setWolMessage] = useState<Feedback | null>(null);
-  const heroRef = useRef<HTMLElement>(null);
 
   const activeManual = devices.data?.filter((device) => device.status === "online") ?? [];
   const activeTailscale = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
@@ -75,19 +74,7 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <section
-        ref={heroRef}
-        className="command-hero"
-        onPointerMove={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect();
-          event.currentTarget.style.setProperty("--hero-x", `${((event.clientX - rect.left) / rect.width - 0.5) * 7}deg`);
-          event.currentTarget.style.setProperty("--hero-y", `${((event.clientY - rect.top) / rect.height - 0.5) * -5}deg`);
-        }}
-        onPointerLeave={(event) => {
-          event.currentTarget.style.setProperty("--hero-x", "0deg");
-          event.currentTarget.style.setProperty("--hero-y", "0deg");
-        }}
-      >
+      <section className="command-hero">
         <div className="command-hero__image" aria-hidden="true" />
         <div className="command-hero__shade" />
         <div className="command-hero__content">

@@ -29,7 +29,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="inline-flex rounded-full border border-line bg-deep p-1" aria-label="Theme preference">
+    <div className="theme-control" aria-label="Theme preference">
       {options.map((option) => {
         const Icon = option.icon;
         const selected = theme === option.value;
@@ -38,8 +38,8 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
             key={option.value}
             type="button"
             aria-pressed={selected}
-            className={`inline-flex min-h-9 items-center justify-center gap-2 rounded-full px-3 text-xs font-semibold transition duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-focus ${
-              selected ? "bg-accent text-white" : "text-muted hover:bg-accent-soft hover:text-mist"
+            className={`theme-control__option ${
+              selected ? "theme-control__option--active" : ""
             }`}
             onClick={() => setTheme(option.value)}
           >
