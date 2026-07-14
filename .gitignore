@@ -315,4 +315,4 @@ __marimo__/
 .streamlit/secrets.toml
 AGENTS.md
 DESIGN.md
-/LOCAL_OPERATIONS_RUNBOOK.md
+#/LOCAL_OPERATIONS_RUNBOOK.md
