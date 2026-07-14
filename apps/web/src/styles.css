@@ -151,6 +151,19 @@ button:disabled { cursor: not-allowed; }
   .launch-card div { @apply min-w-0 flex-1; } .launch-card p { @apply truncate text-sm font-bold text-mist; } .launch-card small { @apply mt-0.5 block truncate text-xs text-muted; } .launch-card > svg { @apply shrink-0 text-muted; }
 
   .raised-card { @apply rounded-xl bg-deep p-4 transition duration-200 hover:-translate-y-0.5; box-shadow: 0 5px 16px rgb(70 48 33/.06), inset 0 1px 0 rgb(255 255 255/.25); }
+  .settings-accordion { @apply overflow-hidden rounded-2xl border border-line/80 bg-deep/35 transition-colors duration-300; }
+  .settings-accordion__trigger { @apply flex min-h-16 w-full items-center justify-between gap-4 px-4 py-3.5 text-sm outline-none transition-colors duration-200 hover:bg-accent-soft/35 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50; }
+  .settings-accordion__chevron { @apply shrink-0 text-muted transition duration-200; }
+  .settings-accordion--open { @apply border-accent/35; }
+  .settings-accordion--open .settings-accordion__trigger { @apply border-b border-line/80 bg-accent-soft/20; }
+  .settings-accordion--open .settings-accordion__chevron { @apply rotate-180 text-accent; }
+  .settings-accordion__body { display: grid; grid-template-rows: 0fr; opacity: 0; transform: translateY(-6px); pointer-events: none; visibility: hidden; transition: grid-template-rows 280ms cubic-bezier(.22,1,.36,1), opacity 180ms ease, transform 280ms cubic-bezier(.22,1,.36,1), visibility 280ms; }
+  .settings-accordion__body[data-open="true"] { grid-template-rows: 1fr; opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible; }
+  .settings-accordion__body > div { min-height: 0; overflow: hidden; }
+  .settings-accordion__content { @apply grid gap-4 p-4; }
+  @media (prefers-reduced-motion: reduce) {
+    .settings-accordion, .settings-accordion__trigger, .settings-accordion__chevron, .settings-accordion__body { transition-duration: 0.01ms; }
+  }
   .metric-card { @apply rounded-xl bg-deep p-4 transition duration-200 hover:-translate-y-0.5; box-shadow: var(--shadow-panel); }
   .btn-primary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:bg-accent-focus focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-px disabled:translate-y-0 disabled:opacity-50; box-shadow: 0 8px 18px rgb(var(--color-accent)/.2); }
   .btn-secondary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-line bg-deep px-4 py-2 text-sm font-semibold text-mist transition duration-200 hover:-translate-y-0.5 hover:border-accent/50 hover:bg-accent-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:translate-y-px disabled:translate-y-0 disabled:opacity-45; box-shadow: 0 3px 10px rgb(70 48 33/.045); }

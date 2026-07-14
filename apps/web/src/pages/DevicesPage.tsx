@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Edit3, LockKeyhole, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
+import { ChevronDown, Edit3, LockKeyhole, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
@@ -77,6 +77,57 @@ function LoadingRows() {
   );
 }
 
+type TailscaleSettingsSection = "general" | "tailscale" | "wol";
+
+function SettingsAccordion({
+  id,
+  title,
+  description,
+  open,
+  onToggle,
+  badge,
+  children
+}: {
+  id: TailscaleSettingsSection;
+  title: string;
+  description: string;
+  open: boolean;
+  onToggle: () => void;
+  badge?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const contentId = `tailscale-settings-${id}`;
+
+  return (
+    <section className={`settings-accordion${open ? " settings-accordion--open" : ""}`}>
+      <button
+        aria-controls={contentId}
+        aria-expanded={open}
+        className="settings-accordion__trigger"
+        type="button"
+        onClick={onToggle}
+      >
+        <span className="min-w-0 text-left">
+          <span className="block font-semibold text-mist">{title}</span>
+          <span className="mt-1 block text-xs font-normal text-muted">{description}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-3">
+          {badge}
+          <ChevronDown aria-hidden="true" className="settings-accordion__chevron" size={18} />
+        </span>
+      </button>
+      <div
+        aria-hidden={!open}
+        className="settings-accordion__body"
+        data-open={open}
+        id={contentId}
+      >
+        <div className="settings-accordion__content">{children}</div>
+      </div>
+    </section>
+  );
+}
+
 export function DevicesPage() {
   const manual = useFetch<DeviceSummary[]>("/api/devices");
   const tailscale = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
@@ -89,6 +140,7 @@ export function DevicesPage() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
   const [tailscaleScrollRequest, setTailscaleScrollRequest] = useState(0);
+  const [openTailscaleSection, setOpenTailscaleSection] = useState<TailscaleSettingsSection | null>("general");
   const tailscaleSettingsRef = useRef<HTMLFormElement>(null);
   const manualSettingsRef = useRef<HTMLFormElement>(null);
   const setTailscaleData = tailscale.setData;
@@ -220,6 +272,7 @@ export function DevicesPage() {
       broadcast_address: device.broadcast_address ?? "",
       note: device.note ?? ""
     });
+    setOpenTailscaleSection("general");
     setTailscaleScrollRequest((request) => request + 1);
   };
 
@@ -320,50 +373,68 @@ export function DevicesPage() {
         {editingTailscaleDevice ? (
           <form
             ref={tailscaleSettingsRef}
-            className="mt-5 grid scroll-mt-6 gap-5 rounded-[18px] border border-accent/25 bg-deep p-5"
+            className="mt-5 grid scroll-mt-6 gap-3 rounded-[18px] border border-accent/25 bg-deep p-4 sm:p-5"
             onSubmit={saveTailscaleSettings}
           >
-            <Field
-              id="tailscale-display-name"
-              label="Display name"
-              help={`Leave blank to use ${editingTailscaleDevice.machine_name}.`}
-              value={settingsForm.display_name ?? ""}
-              onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
-            />
+            <SettingsAccordion
+              id="general"
+              title="General"
+              description="Name shown across PiHomeHub"
+              open={openTailscaleSection === "general"}
+              onToggle={() => setOpenTailscaleSection((section) => section === "general" ? null : "general")}
+            >
+              <Field
+                id="tailscale-display-name"
+                label="Display name"
+                help={`Leave blank to use ${editingTailscaleDevice.machine_name}.`}
+                value={settingsForm.display_name ?? ""}
+                onChange={(event) => setSettingsForm({ ...settingsForm, display_name: event.target.value })}
+              />
+            </SettingsAccordion>
 
-            <section className="grid gap-3 rounded-[18px] border border-line/70 bg-card/30 p-4" aria-label="Read-only Tailscale information">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-muted">Tailscale information</h3>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-deep/60 px-2.5 py-1 text-xs font-semibold text-muted">
+            <SettingsAccordion
+              id="tailscale"
+              title="Tailscale information"
+              description="Read-only values from Tailscale"
+              open={openTailscaleSection === "tailscale"}
+              onToggle={() => setOpenTailscaleSection((section) => section === "tailscale" ? null : "tailscale")}
+              badge={
+                <span className="hidden items-center gap-1.5 rounded-full border border-line bg-deep/60 px-2.5 py-1 text-xs font-semibold text-muted sm:inline-flex">
                   <LockKeyhole size={13} />
                   Read only
                 </span>
-              </div>
-              <p className="text-xs leading-5 text-muted">These values come from Tailscale and cannot be changed in PiHomeHub.</p>
-              <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  ["Tailscale name", editingTailscaleDevice.machine_name],
-                  ["Hostname", editingTailscaleDevice.hostname],
-                  ["Node ID", editingTailscaleDevice.node_id],
-                  ["Tailscale ID", editingTailscaleDevice.tailscale_id],
-                  ["OS", editingTailscaleDevice.os],
-                  ["IP addresses", editingTailscaleDevice.tailscale_ips],
-                  ["Tags", editingTailscaleDevice.tags],
-                  ["Online", editingTailscaleDevice.online ? "Yes" : "No"],
-                  ["Sync status", editingTailscaleDevice.sync_status],
-                  ["Last seen", editingTailscaleDevice.last_seen],
-                  ["Last synced", editingTailscaleDevice.last_synced_at]
-                ].map(([label, value]) => (
-                  <div key={label as string} className="rounded-[14px] border border-line/70 bg-deep/40 px-4 py-3">
-                    <p className="text-xs font-semibold text-muted">{label}</p>
-                    <p className="mt-1 break-all text-sm text-muted">{detailValue(value as string | string[] | null)}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
+              }
+            >
+                <p className="text-xs leading-5 text-muted">These values come from Tailscale and cannot be changed in PiHomeHub.</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[
+                    ["Tailscale name", editingTailscaleDevice.machine_name],
+                    ["Hostname", editingTailscaleDevice.hostname],
+                    ["Node ID", editingTailscaleDevice.node_id],
+                    ["Tailscale ID", editingTailscaleDevice.tailscale_id],
+                    ["OS", editingTailscaleDevice.os],
+                    ["IP addresses", editingTailscaleDevice.tailscale_ips],
+                    ["Tags", editingTailscaleDevice.tags],
+                    ["Online", editingTailscaleDevice.online ? "Yes" : "No"],
+                    ["Sync status", editingTailscaleDevice.sync_status],
+                    ["Last seen", editingTailscaleDevice.last_seen],
+                    ["Last synced", editingTailscaleDevice.last_synced_at]
+                  ].map(([label, value]) => (
+                    <div key={label as string} className="rounded-[14px] border border-line/70 bg-card/30 px-4 py-3">
+                      <p className="text-xs font-semibold text-muted">{label}</p>
+                      <p className="mt-1 break-all text-sm text-muted">{detailValue(value as string | string[] | null)}</p>
+                    </div>
+                  ))}
+                </div>
+            </SettingsAccordion>
 
-            <section className="grid gap-3">
-              <h3 className="text-sm font-semibold text-mist">Wake-on-LAN</h3>
+            <SettingsAccordion
+              id="wol"
+              title="Wake on LAN"
+              description="Configure local network wake-up"
+              open={openTailscaleSection === "wol"}
+              onToggle={() => setOpenTailscaleSection((section) => section === "wol" ? null : "wol")}
+            >
               <label className="check-row">
                 <input className="check-input" type="checkbox" checked={settingsForm.supports_wol} onChange={(event) => setSettingsForm({ ...settingsForm, supports_wol: event.target.checked })} />
                 Supports Wake-on-LAN
@@ -374,7 +445,7 @@ export function DevicesPage() {
                 <Field label="Broadcast address" value={settingsForm.broadcast_address ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, broadcast_address: event.target.value })} />
               </div>
               <TextareaField label="Note" value={settingsForm.note ?? ""} onChange={(event) => setSettingsForm({ ...settingsForm, note: event.target.value })} />
-            </section>
+            </SettingsAccordion>
 
             <div className="flex flex-wrap gap-2">
               <button className="btn-primary">Save settings</button>
