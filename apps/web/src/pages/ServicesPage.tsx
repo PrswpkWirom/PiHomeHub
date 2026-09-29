@@ -2,6 +2,8 @@ import { AlertTriangle, ClipboardCopy, ExternalLink, Info, RefreshCw, Save, Serv
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
+import { usePermissions } from "../components/AdminOnly";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
@@ -122,6 +124,7 @@ type PortEditorProps = {
   message: Feedback | undefined;
   saving: boolean;
   checking: boolean;
+  canAdmin: boolean;
   pollingExpired: boolean;
   onDraftChange: (serviceSlug: string, portKey: string, value: string) => void;
   onSave: (config: ServicePortConfig) => void;
@@ -136,6 +139,7 @@ function ServicePortEditor({
   message,
   saving,
   checking,
+  canAdmin,
   pollingExpired,
   onDraftChange,
   onSave,
@@ -165,7 +169,8 @@ function ServicePortEditor({
         {webEditable ? (
           <button
             className="btn-secondary min-h-9 px-3 py-1"
-            disabled={saving || checking}
+            disabled={saving || checking || !canAdmin}
+            aria-describedby={!canAdmin ? `port-admin-required-${config.slug}` : undefined}
             type="button"
             onClick={() => onSave(config)}
           >
@@ -174,6 +179,7 @@ function ServicePortEditor({
           </button>
         ) : null}
       </div>
+      {webEditable && !canAdmin ? <p id={`port-admin-required-${config.slug}`} className="mt-2 text-xs text-muted">Administrator access required to change ports.</p> : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {config.ports.map((port) => (
@@ -186,7 +192,7 @@ function ServicePortEditor({
               className="input-field"
               inputMode="numeric"
               pattern="[0-9]*"
-              disabled={!webEditable}
+              disabled={!webEditable || !canAdmin}
               value={drafts?.[port.key] ?? String(port.desired_host_port)}
               onChange={(event) => onDraftChange(config.slug, port.key, event.target.value)}
               aria-label={`${config.name} ${port.label} host port`}
@@ -220,14 +226,12 @@ function ServicePortEditor({
           </div>
           <div className="mt-4 rounded-[12px] border border-warning/30 bg-deep/70 p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Operator command</p>
-            <code className="mt-2 block overflow-x-auto whitespace-nowrap font-mono text-xs text-mist">
-              {config.operator_command}
-            </code>
+            {canAdmin ? <code className="mt-2 block overflow-x-auto whitespace-nowrap font-mono text-xs text-mist">{config.operator_command}</code> : <p className="mt-2 text-xs text-muted">Operator instructions require administrator access.</p>}
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="btn-secondary min-h-9 px-3 py-1" type="button" onClick={() => onCopyCommand(config)}>
+              {canAdmin ? <button className="btn-secondary min-h-9 px-3 py-1" type="button" onClick={() => onCopyCommand(config)}>
                 <ClipboardCopy size={15} />
                 Copy command
-              </button>
+              </button> : null}
               <button
                 className="btn-secondary min-h-9 px-3 py-1"
                 disabled={checking || saving}
@@ -262,6 +266,7 @@ function ServicePortEditor({
 }
 
 export function ServicesPage() {
+  const { isAdmin } = usePermissions();
   const statuses = useFetch<ServiceStatus[]>("/api/services/status");
   const capabilities = useFetch<ServiceCapability[]>("/api/services/capabilities");
   const links = useFetch<ServiceLink[]>("/api/services/links");
@@ -272,6 +277,9 @@ export function ServicesPage() {
   const [portMessages, setPortMessages] = useState<Record<string, Feedback>>({});
   const [savingPortsFor, setSavingPortsFor] = useState<string | null>(null);
   const [checkingPortsFor, setCheckingPortsFor] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ service: ServiceStatus; action: string } | null>(null);
+  const [pendingPortSave, setPendingPortSave] = useState<ServicePortConfig | null>(null);
+  const actionLock = useRef(false);
   const pendingOrigins = useRef<Map<string, ServicePortConfig>>(new Map());
   const [awaitingVerification, setAwaitingVerification] = useState<Set<string>>(new Set());
   const capabilitiesBySlug = new Map((capabilities.data ?? []).map((capability) => [capability.slug, capability]));
@@ -373,6 +381,8 @@ export function ServicesPage() {
   } = usePendingPortPolling(pendingSlugs, pollPendingPorts);
 
   const runServiceAction = async (service: ServiceStatus, action: string) => {
+    if (!isAdmin || actionLock.current) return;
+    actionLock.current = true;
     const key = `${service.slug}:${action}`;
     setRunningAction(key);
     setActionMessage(null);
@@ -411,6 +421,7 @@ export function ServicesPage() {
     } catch (error) {
       setActionMessage({ serviceSlug: service.slug, feedback: errorFeedback(error, `${service.name} action failed.`) });
     } finally {
+      actionLock.current = false;
       setRunningAction(null);
     }
   };
@@ -431,6 +442,8 @@ export function ServicesPage() {
   };
 
   const savePorts = async (config: ServicePortConfig) => {
+    if (!isAdmin || actionLock.current) return;
+    actionLock.current = true;
     setSavingPortsFor(config.slug);
     setPortMessages((current) => {
       const next = { ...current };
@@ -451,6 +464,7 @@ export function ServicesPage() {
         }
       }));
       setSavingPortsFor(null);
+      actionLock.current = false;
       return;
     }
 
@@ -497,6 +511,7 @@ export function ServicesPage() {
         }
       }));
     } finally {
+      actionLock.current = false;
       setSavingPortsFor(null);
     }
   };
@@ -516,6 +531,7 @@ export function ServicesPage() {
   };
 
   const copyOperatorCommand = async (config: ServicePortConfig) => {
+    if (!isAdmin) return;
     try {
       await navigator.clipboard.writeText(config.operator_command);
       setPortMessages((current) => ({
@@ -561,6 +577,7 @@ export function ServicesPage() {
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void retryPendingPortPoll().catch(() => undefined)}>Retry pending port check</button>}
         />
         <div className="space-y-4">
+          {!isAdmin && statuses.data?.some((service) => actionsForStatus(service, capabilitiesBySlug.get(service.slug)).length > 0) ? <p className="text-sm text-muted">Service controls require administrator access.</p> : null}
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
             const actions = actionsForStatus(service, capabilitiesBySlug.get(service.slug));
@@ -586,10 +603,14 @@ export function ServicesPage() {
                         <button
                           key={action}
                           className="btn-secondary min-h-9 px-3 py-1"
-                          disabled={runningAction !== null}
+                          disabled={runningAction !== null || !isAdmin}
+                          aria-describedby={!isAdmin ? `service-admin-required-${service.slug}` : undefined}
                           aria-busy={runningAction === key}
                           type="button"
-                          onClick={() => void runServiceAction(service, action)}
+                          onClick={() => {
+                            if (action === "stop" || action === "restart") setPendingAction({ service, action });
+                            else void runServiceAction(service, action);
+                          }}
                         >
                           {runningAction === key ? "Working..." : actionLabel(action)}
                         </button>
@@ -597,6 +618,7 @@ export function ServicesPage() {
                     })}
                   </div>
                 ) : null}
+                {!isAdmin && actions.length > 0 ? <p id={`service-admin-required-${service.slug}`} className="mt-2 text-xs text-muted">Administrator access required</p> : null}
                 {actionMessage?.serviceSlug === service.slug ? (
                   <FeedbackMessage
                     feedback={actionMessage.feedback}
@@ -610,9 +632,10 @@ export function ServicesPage() {
                   message={portMessages[service.slug]}
                   saving={savingPortsFor === service.slug}
                   checking={checkingPortsFor === service.slug}
+                  canAdmin={isAdmin}
                   pollingExpired={pollingExpired.has(service.slug)}
                   onDraftChange={updatePortDraft}
-                  onSave={(config) => void savePorts(config)}
+                  onSave={(config) => setPendingPortSave(config)}
                   onCopyCommand={(config) => void copyOperatorCommand(config)}
                   onCheckNow={(config) => void checkPendingPorts(config)}
                   onDismissMessage={dismissPortMessage}
@@ -672,6 +695,8 @@ export function ServicesPage() {
           {links.data?.length === 0 ? <p className="empty-state">No dashboard links are available.</p> : null}
         </div>
       </Panel>
+      {pendingAction ? <ConfirmDialog title={`${pendingAction.action === "stop" ? "Stop" : "Restart"} ${pendingAction.service.name}?`} description={`This sends a ${pendingAction.action} request to ${pendingAction.service.name}.`} confirmLabel={`${pendingAction.action === "stop" ? "Stop" : "Restart"} service`} onCancel={() => setPendingAction(null)} onConfirm={() => { const target = pendingAction; setPendingAction(null); void runServiceAction(target.service, target.action); }} /> : null}
+      {pendingPortSave ? <ConfirmDialog title={`Save ${pendingPortSave.name} ports?`} description="PiHomeHub will save the desired host ports. In operator-managed deployments, the running Docker bindings change only after an operator redeploys the service." confirmLabel="Save ports" onCancel={() => setPendingPortSave(null)} onConfirm={() => { const target = pendingPortSave; setPendingPortSave(null); void savePorts(target); }} /> : null}
       </div>
     </div>
   );

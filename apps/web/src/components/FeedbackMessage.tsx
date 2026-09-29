@@ -85,5 +85,5 @@ export function FeedbackMessage({ feedback, className = "", onDismiss, action }:
 }
 
 export function errorFeedback(error: unknown, fallback: string): Feedback {
-  return { kind: "error", text: error instanceof Error ? error.message : fallback };
+  return { kind: "error", persistent: true, text: error instanceof Error ? error.message : fallback };
 }

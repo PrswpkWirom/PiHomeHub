@@ -1,186 +1,58 @@
-import { FormEvent, useEffect, useState } from "react";
-import { CheckCircle2, KeyRound, RefreshCw, Save, ServerCog, Wifi } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
-import { api } from "../api/client";
-import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
-import { Field } from "../components/Field";
 import { Panel } from "../components/Panel";
-import { StatusPill } from "../components/StatusPill";
-import { invalidateCache, setCachedData } from "../hooks/useFetch";
-import type { TailscaleConnectionResult, TailscaleDevice, TailscaleStatus } from "../types/api";
+import { usePermissions } from "../components/AdminOnly";
+
+const sections = [
+  { path: "general", label: "General" },
+  { path: "account", label: "Account" },
+  { path: "access", label: "Access" },
+  { path: "users", label: "Users", admin: true },
+  { path: "security", label: "Security", admin: true },
+  { path: "system", label: "System" }
+] as const;
 
 export function SettingsPage() {
-  const [status, setStatus] = useState<TailscaleStatus | null>(null);
-  const [apiToken, setApiToken] = useState("");
-  const [tailnet, setTailnet] = useState("");
-  const [message, setMessage] = useState<Feedback | null>(null);
-  const [statusError, setStatusError] = useState<Feedback | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const loadStatus = async () => {
-    try {
-      const nextStatus = await api.get<TailscaleStatus>("/api/tailscale/status");
-      setStatus(nextStatus);
-      setTailnet(nextStatus.tailnet ?? "");
-      setStatusError(null);
-    } catch (error) {
-      setStatusError({ ...errorFeedback(error, "Tailscale status could not be loaded."), persistent: true });
-      throw error;
-    }
-  };
-
-  useEffect(() => {
-    void loadStatus().catch(() => undefined);
-  }, []);
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setMessage(null);
-    try {
-      const nextStatus = await api.post<TailscaleStatus>("/api/tailscale/settings", {
-        api_token: apiToken || null,
-        tailnet
-      });
-      setStatus(nextStatus);
-      invalidateCache("/api/tailscale/devices");
-      invalidateCache("/api/tailscale/status");
-      setApiToken("");
-      setMessage({ kind: "success", text: `Tailscale settings saved for ${nextStatus.tailnet ?? tailnet}.` });
-    } catch (error) {
-      setMessage(errorFeedback(error, "Tailscale settings could not be saved."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const testConnection = async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await api.post<TailscaleConnectionResult>("/api/tailscale/test");
-      setMessage(
-        result.ok
-          ? { kind: "success", text: `Tailscale connection test completed: ${result.message}` }
-          : { kind: "error", text: `Tailscale connection test failed: ${result.message}` }
-      );
-    } catch (error) {
-      setMessage(errorFeedback(error, "Tailscale connection test failed."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const syncDevices = async () => {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const devices = await api.post<TailscaleDevice[]>("/api/tailscale/sync");
-      setCachedData<TailscaleDevice[]>("/api/tailscale/devices", devices);
-      invalidateCache("/api/tailscale/status");
-      await loadStatus().catch(() => undefined);
-      setMessage({ kind: "success", text: `Tailscale sync completed for ${devices.length} devices.` });
-    } catch (error) {
-      setMessage(errorFeedback(error, "Tailscale device sync failed."));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { isAdmin } = usePermissions();
+  const location = useLocation();
+  const pathParts = location.pathname.split("/").filter(Boolean);
+  const section = pathParts[pathParts.length - 1] ?? "account";
+  const title = sections.find((item) => item.path === section)?.label ?? "Settings";
 
   return (
     <div className="page-stack">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Settings</p>
-          <h1 className="page-title">Private access settings</h1>
-          <p className="page-copy">Manage Tailscale connection details and keep deployment guidance close to the controls.</p>
+          <p className="eyebrow">Workspace</p>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-copy">Manage your account, private access, and PiHomeHub preferences.</p>
         </div>
       </div>
-
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-      <Panel title="Tailscale" description="Token values remain write-only in the UI after saving.">
-        <form className="space-y-4" onSubmit={save}>
-          <div className="grid gap-3 rounded-[18px] border border-line bg-deep p-4 text-sm text-muted sm:grid-cols-3">
-            <div className="rounded-[14px] bg-card/70 p-3">
-              <p className="text-xs font-semibold text-muted">Status</p>
-              <div className="mt-2">
-                {status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : <span className="text-muted">Loading...</span>}
-              </div>
-            </div>
-            <div className="rounded-[14px] bg-card/70 p-3">
-              <p className="text-xs font-semibold text-muted">Token</p>
-              <p className="mt-2 font-semibold text-mist">{status?.token_saved ? "Token saved" : "No token configured"}</p>
-            </div>
-            <div className="rounded-[14px] bg-card/70 p-3">
-              <p className="text-xs font-semibold text-muted">Last sync</p>
-              <p className="mt-2 font-mono text-sm tabular-nums text-mist">{status?.last_sync_at ?? "Never"}</p>
-            </div>
-          </div>
-          {status?.last_sync_error ? (
-            <FeedbackMessage feedback={{
-              kind: "warning",
-              persistent: true,
-              text: `Previous sync error${status.last_sync_at ? ` (last sync ${status.last_sync_at})` : ""}: ${status.last_sync_error}`
-            }} />
-          ) : null}
-          <FeedbackMessage
-            feedback={statusError}
-            action={<button className="btn-secondary" type="button" onClick={() => void loadStatus().catch(() => undefined)}>Retry Tailscale status</button>}
-          />
-          <Field
-            label="API token"
-            help={status?.token_saved ? "Token saved. Enter a new token only when replacing it." : "Paste a Tailscale API token."}
-            type="password"
-            value={apiToken}
-            onChange={(event) => { setApiToken(event.target.value); setMessage(null); }}
-            autoComplete="off"
-          />
-          <Field
-            label="Tailnet"
-            help="Use your tailnet name, example.com, or - for the default account."
-            value={tailnet}
-            onChange={(event) => { setTailnet(event.target.value); setMessage(null); }}
-            required
-          />
-          <div className="flex flex-wrap gap-3">
-            <button className="btn-primary" disabled={busy}>
-              <Save size={16} />
-              Save
-            </button>
-            <button className="btn-secondary" disabled={busy} type="button" onClick={() => void testConnection()}>
-              <Wifi size={16} />
-              Test connection
-            </button>
-            <button className="btn-secondary" disabled={busy} type="button" onClick={() => void syncDevices()}>
-              <RefreshCw className={busy ? "animate-spin" : ""} size={16} />
-              Sync devices now
-            </button>
-          </div>
-          <FeedbackMessage feedback={message} onDismiss={() => setMessage(null)} />
-        </form>
-      </Panel>
-
-      <div className="grid gap-5">
-      <Panel title="Access model">
-        <div className="raised-card flex gap-3">
-          <KeyRound className="mt-0.5 shrink-0 text-accent" size={20} />
-          <p className="text-sm leading-6 text-muted">PiHomeHub supports administrator and viewer accounts over private LAN or Tailscale access. Tailscale tokens are write-only in the UI and are never displayed after saving.</p>
-        </div>
-      </Panel>
-      <Panel title="Deployment notes">
-        <div className="space-y-3">
-          <div className="raised-card flex gap-3">
-            <ServerCog className="mt-0.5 shrink-0 text-accent" size={20} />
-            <p className="text-sm leading-6 text-muted">Use Caddy or a similar reverse proxy for HTTPS termination. Keep the dashboard off the public internet.</p>
-          </div>
-          <div className="raised-card flex gap-3">
-            <CheckCircle2 className="mt-0.5 shrink-0 text-success" size={20} />
-            <p className="text-sm leading-6 text-muted">LAN and Tailscale access should stay authenticated and limited to trusted devices.</p>
-          </div>
-        </div>
-      </Panel>
-      </div>
-      </div>
+      <nav aria-label="Settings" className="flex gap-2 overflow-x-auto rounded-[18px] border border-line bg-panel p-2">
+        {sections.filter((item) => !("admin" in item) || !item.admin || isAdmin).map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            aria-current={section === item.path ? "page" : undefined}
+            className={({ isActive }) => `shrink-0 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${isActive ? "bg-accent-soft text-accent" : "text-muted hover:bg-raised hover:text-mist"}`}
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+      <section aria-label={`${title} settings`}>
+        <Outlet />
+      </section>
     </div>
+  );
+}
+
+export function SettingsAdminGuard({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = usePermissions();
+  if (isAdmin) return children;
+  return (
+    <Panel title="Administrator access required" description="Users and security events are available to administrators.">
+      <Link className="btn-secondary inline-flex" to="/settings/account">Return to Account</Link>
+    </Panel>
   );
 }

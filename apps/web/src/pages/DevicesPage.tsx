@@ -2,6 +2,8 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Edit3, LockKeyhole, Monitor, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
+import { usePermissions } from "../components/AdminOnly";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Field, TextareaField } from "../components/Field";
 import { Panel } from "../components/Panel";
@@ -130,6 +132,7 @@ function SettingsAccordion({
 }
 
 export function DevicesPage() {
+  const { isAdmin } = usePermissions();
   const manual = useFetch<DeviceSummary[]>("/api/devices");
   const tailscale = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
   const localAccess = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
@@ -171,8 +174,11 @@ export function DevicesPage() {
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
   const [settingsForm, setSettingsForm] = useState<TailscaleDeviceSettingsWrite>(emptyTailscaleSettings);
   const [message, setMessage] = useState<Feedback | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<DeviceSummary | null>(null);
   const [manualMessage, setManualMessage] = useState<Feedback | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [deviceWriteBusy, setDeviceWriteBusy] = useState(false);
+  const deviceWriteLock = useRef(false);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(lastTailscaleSyncLabel);
   const [tailscaleScrollRequest, setTailscaleScrollRequest] = useState(0);
   const [openTailscaleSection, setOpenTailscaleSection] = useState<TailscaleSettingsSection | null>("general");
@@ -182,6 +188,7 @@ export function DevicesPage() {
   const editingTailscaleDevice = tailscale.data?.find((device) => device.id === editingTailscaleId) ?? null;
 
   const syncTailscale = useCallback(async ({ silent = false, force = false }: { silent?: boolean; force?: boolean } = {}) => {
+    if (!isAdmin) return;
     if (silent && tailscaleSyncPromise) {
       return;
     }
@@ -213,13 +220,13 @@ export function DevicesPage() {
       tailscaleSyncPromise = null;
       setSyncing(false);
     }
-  }, [setTailscaleData, refetchCurrentIdentity]);
+  }, [isAdmin, setTailscaleData, refetchCurrentIdentity]);
 
   useEffect(() => {
-    if (!tailscale.loading && tailscale.data !== null && !hasRecentTailscaleSync(tailscale.data)) {
+    if (isAdmin && !tailscale.loading && tailscale.data !== null && !hasRecentTailscaleSync(tailscale.data)) {
       void syncTailscale({ silent: true });
     }
-  }, [syncTailscale, tailscale.data, tailscale.loading]);
+  }, [isAdmin, syncTailscale, tailscale.data, tailscale.loading]);
 
   useEffect(() => {
     if (!editingTailscaleDevice || tailscaleScrollRequest === 0) {
@@ -239,6 +246,8 @@ export function DevicesPage() {
 
   const saveManual = async (event: FormEvent) => {
     event.preventDefault();
+    if (!isAdmin || deviceWriteLock.current) return;
+    deviceWriteLock.current = true; setDeviceWriteBusy(true);
     const payload = cleanDevice(manualForm);
     setManualMessage(null);
     try {
@@ -255,11 +264,13 @@ export function DevicesPage() {
       setEditingManualId(null);
     } catch (error) {
       setManualMessage(errorFeedback(error, "Manual device settings could not be saved."));
+    } finally {
+      deviceWriteLock.current = false; setDeviceWriteBusy(false);
     }
   };
 
   const editManual = (device: DeviceSummary) => {
-    if (!device.id) {
+    if (!isAdmin || !device.id) {
       return;
     }
     setManualMessage(null);
@@ -285,9 +296,8 @@ export function DevicesPage() {
   };
 
   const deleteManual = async (device: DeviceSummary) => {
-    if (!device.id) {
-      return;
-    }
+    if (!isAdmin || !device.id || deviceWriteLock.current) return;
+    deviceWriteLock.current = true; setDeviceWriteBusy(true);
     setManualMessage(null);
     try {
       await api.delete(`/api/devices/${device.id}`);
@@ -295,6 +305,8 @@ export function DevicesPage() {
       setManualMessage({ kind: "success", text: `${device.name} deleted from manual devices.` });
     } catch (error) {
       setManualMessage(errorFeedback(error, `${device.name} could not be deleted.`));
+    } finally {
+      deviceWriteLock.current = false; setDeviceWriteBusy(false);
     }
   };
 
@@ -319,9 +331,8 @@ export function DevicesPage() {
 
   const saveTailscaleSettings = async (event: FormEvent) => {
     event.preventDefault();
-    if (!editingTailscaleId) {
-      return;
-    }
+    if (!isAdmin || !editingTailscaleId || deviceWriteLock.current) return;
+    deviceWriteLock.current = true; setDeviceWriteBusy(true);
     setMessage(null);
     try {
       const updated = await api.patch<TailscaleDevice>(`/api/tailscale/devices/${editingTailscaleId}/settings`, {
@@ -337,15 +348,21 @@ export function DevicesPage() {
       closeTailscaleSettings();
     } catch (error) {
       setMessage(errorFeedback(error, `${editingTailscaleDevice?.display_name ?? "Tailscale device"} settings could not be saved.`));
+    } finally {
+      deviceWriteLock.current = false; setDeviceWriteBusy(false);
     }
   };
 
   const wakeTailscale = async (device: TailscaleDevice) => {
+    if (!isAdmin || deviceWriteLock.current) return;
+    deviceWriteLock.current = true; setDeviceWriteBusy(true);
     try {
       await api.post(`/api/tailscale/devices/${device.id}/wake`);
       setMessage({ kind: "success", text: `Wake packet sent to ${device.display_name}.` });
     } catch (error) {
       setMessage(errorFeedback(error, `Wake request for ${device.display_name} failed.`));
+    } finally {
+      deviceWriteLock.current = false; setDeviceWriteBusy(false);
     }
   };
 
@@ -363,15 +380,17 @@ export function DevicesPage() {
         description="Synced from the Tailscale API. Device settings stay editable inline so the list remains visible."
         action={
           <div className="flex flex-wrap items-center justify-end gap-3 text-sm text-muted">
-            <span>{lastSyncAt ? `Last sync ${lastSyncAt}` : "Background sync after load"}</span>
+            <span>{lastSyncAt ? `Last sync ${lastSyncAt}` : isAdmin ? "Background sync after load" : "Sync status from Tailscale"}</span>
             <button
               className="btn-secondary"
-              disabled={syncing}
+              disabled={syncing || deviceWriteBusy || !isAdmin}
+              aria-describedby={!isAdmin ? "tailscale-sync-admin-required" : undefined}
               onClick={() => void syncTailscale({ force: true })}
             >
               <RefreshCw className={syncing ? "animate-spin" : ""} size={16} />
               {syncing ? "Syncing..." : "Sync now"}
             </button>
+            {!isAdmin ? <span id="tailscale-sync-admin-required" className="text-xs text-muted">Administrator access required</span> : null}
           </div>
         }
       >
@@ -420,14 +439,13 @@ export function DevicesPage() {
                 <span className="text-sm text-muted">Last seen: {device.last_seen ?? "Unknown"}</span>
               </div>
               <div className="flex flex-wrap gap-2 xl:justify-end">
-                <button className="btn-secondary" onClick={() => openTailscaleSettings(device)}>
-                  <Settings2 size={16} />
-                  Settings
+                {isAdmin ? <button className="btn-secondary" onClick={() => openTailscaleSettings(device)}>
+                  <Settings2 size={16} /> Settings
+                </button> : null}
+                <button className="btn-primary" disabled={!isAdmin || !canWake(device) || deviceWriteBusy} aria-describedby={!isAdmin ? `tailscale-wake-admin-required-${device.id}` : undefined} onClick={() => { if (isAdmin) void wakeTailscale(device); }}>
+                  <Power size={16} /> Wake
                 </button>
-                <button className="btn-primary" disabled={!canWake(device)} onClick={() => void wakeTailscale(device)}>
-                  <Power size={16} />
-                  Wake
-                </button>
+                {!isAdmin ? <span id={`tailscale-wake-admin-required-${device.id}`} className="text-xs text-muted">Administrator access required</span> : null}
               </div>
             </div>
           ))}
@@ -511,7 +529,7 @@ export function DevicesPage() {
             </SettingsAccordion>
 
             <div className="flex flex-wrap gap-2">
-              <button className="btn-primary">Save settings</button>
+              <button className="btn-primary" disabled={deviceWriteBusy}>{deviceWriteBusy ? "Saving…" : "Save settings"}</button>
               <button className="btn-secondary" type="button" onClick={closeTailscaleSettings}>
                 <X size={16} />
                 Cancel
@@ -528,7 +546,7 @@ export function DevicesPage() {
           feedback={manual.error ? { kind: "error", persistent: true, text: manual.error } : null}
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void manual.refetch()}>Retry manual devices</button>}
         />
-        <form ref={manualSettingsRef} className="mb-5 grid scroll-mt-6 gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
+        {isAdmin ? <form ref={manualSettingsRef} className="mb-5 grid scroll-mt-6 gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Name" value={manualForm.name} onChange={(event) => setManualForm({ ...manualForm, name: event.target.value })} required />
             <Field label="Device type" value={manualForm.device_type} onChange={(event) => setManualForm({ ...manualForm, device_type: event.target.value })} />
@@ -542,7 +560,7 @@ export function DevicesPage() {
           </div>
           <TextareaField label="Description" value={manualForm.description ?? ""} onChange={(event) => setManualForm({ ...manualForm, description: event.target.value })} />
           <div className="flex flex-wrap gap-2">
-            <button className="btn-primary">{editingManualId ? "Save device" : "Add device"}</button>
+            <button className="btn-primary" disabled={deviceWriteBusy}>{deviceWriteBusy ? "Saving…" : editingManualId ? "Save device" : "Add device"}</button>
             {editingManualId ? (
               <button className="btn-secondary" type="button" onClick={() => { setEditingManualId(null); setManualForm(emptyManualDevice); setManualMessage(null); }}>
                 <X size={16} />
@@ -550,7 +568,7 @@ export function DevicesPage() {
               </button>
             ) : null}
           </div>
-        </form>
+        </form> : <p className="mb-4 text-sm text-muted">Manual device changes require administrator access.</p>}
         <FeedbackMessage feedback={manualMessage} className="mb-4" onDismiss={() => setManualMessage(null)} />
         <div className="space-y-4">
           {manual.data?.map((device) => (
@@ -565,13 +583,13 @@ export function DevicesPage() {
               </div>
               <div className="flex flex-wrap justify-start gap-2 md:justify-end">
                 <StatusPill status={device.status} />
-                {device.id ? (
+                {device.id && isAdmin ? (
                   <>
-                    <button className="btn-secondary" onClick={() => editManual(device)}>
+                    <button className="btn-secondary" disabled={deviceWriteBusy} onClick={() => editManual(device)}>
                       <Edit3 size={16} />
                       Edit
                     </button>
-                    <button className="btn-danger" onClick={() => void deleteManual(device)}>
+                    <button className="btn-danger" disabled={deviceWriteBusy} onClick={() => setPendingDelete(device)}>
                       <Trash2 size={16} />
                       Delete
                     </button>
@@ -583,6 +601,7 @@ export function DevicesPage() {
           {manual.data?.length === 0 ? <p className="empty-state">No manual devices yet. Add one above when you want local Wake-on-LAN or a fixed LAN entry.</p> : null}
         </div>
       </Panel>
+      {pendingDelete ? <ConfirmDialog title={`Delete ${pendingDelete.name}?`} description="This removes the manually managed device from PiHomeHub." confirmLabel="Delete device" onCancel={() => setPendingDelete(null)} onConfirm={() => { const target = pendingDelete; setPendingDelete(null); void deleteManual(target); }} /> : null}
     </div>
   );
 }

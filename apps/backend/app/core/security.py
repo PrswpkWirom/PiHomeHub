@@ -117,18 +117,26 @@ def touch_session(db: Session, session: SessionToken, now: datetime | None = Non
         db.commit()
 
 
-def revoke_session(db: Session, session: SessionToken) -> None:
+def revoke_session(db: Session, session: SessionToken, *, commit: bool = True) -> None:
     if session.revoked_at is None:
         session.revoked_at = utc_now()
-        db.commit()
+        if commit:
+            db.commit()
 
 
-def revoke_all_sessions(db: Session, user_id: int, *, except_session_id: int | None = None) -> int:
+def revoke_all_sessions(
+    db: Session,
+    user_id: int,
+    *,
+    except_session_id: int | None = None,
+    commit: bool = True,
+) -> int:
     query = db.query(SessionToken).filter(SessionToken.user_id == user_id, SessionToken.revoked_at.is_(None))
     if except_session_id is not None:
         query = query.filter(SessionToken.id != except_session_id)
     count = query.update({SessionToken.revoked_at: utc_now()}, synchronize_session=False)
-    db.commit()
+    if commit:
+        db.commit()
     return count
 
 

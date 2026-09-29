@@ -13,19 +13,45 @@ PYTHONPATH=apps/backend .venv/bin/alembic -c apps/backend/alembic.ini upgrade he
 PYTHONPATH=apps/backend .venv/bin/python -m app.cli create-admin
 ```
 
-3. Run `uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers`.
-4. Run `npm ci --prefix apps/web` and `npm --prefix apps/web run dev`.
+3. Run the API and frontend in separate terminals:
+
+Terminal 1:
+
+```bash
+.venv/bin/uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers
+```
+
+Terminal 2:
+
+```bash
+npm ci --prefix apps/web
+npm --prefix apps/web run dev
+```
+
+Open <http://localhost:5173>. For a single command that starts both servers,
+install frontend dependencies and run `./scripts/run-dev.sh` from the repo
+root. The API health endpoint at <http://localhost:8000/health> is a simple
+liveness check; it does not require authentication or report dependency health.
 
 The development cookie is deliberately non-Secure and uses a separate name. Never use the development override as production.
 
 ## Docker production
 
-Use [production-deployment.md](production-deployment.md). Production has one loopback-bound HTTPS ingress, static frontend assets, no backend/control-agent host ports, no Docker socket in FastAPI, and no environment-supplied administrator password.
+Use [production-deployment.md](production-deployment.md). Create
+`infra/.env`, generate the required independent secrets, and pass the file with
+`--env-file infra/.env` to Compose. Production has one loopback-bound HTTPS
+ingress, static frontend assets, no backend/control-agent host ports, no
+Docker socket in FastAPI, and no environment-supplied administrator password.
 
-For an explicit Docker development stack:
+For an explicit Docker development stack, first copy
+`infra/.env.example` to `infra/.env`. Initialize the database and create the
+administrator before starting the stack:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up --build
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml build
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend alembic upgrade head
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend python -m app.cli create-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up
 ```
 
 ## Bootstrap data and Tailscale

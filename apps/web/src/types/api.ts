@@ -2,6 +2,43 @@ export type AuthUser = {
   id: number;
   username: string;
   is_admin: boolean;
+  password_changed_at?: string | null;
+};
+
+export type AdminUser = {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  is_active: boolean;
+};
+
+export type SessionRead = {
+  id: number;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  authentication_time: string;
+  user_agent: string | null;
+  source_ip: string | null;
+  current: boolean;
+};
+
+export type AuditEventSummary = {
+  id: number;
+  created_at: string;
+  request_id: string | null;
+  actor_user_id: number | null;
+  actor_username: string | null;
+  event: string;
+  target_type: string | null;
+  target_identifier: string | null;
+  success: boolean;
+  source_ip: string | null;
+};
+
+export type AuditEventPage = {
+  items: AuditEventSummary[];
+  next_cursor: number | null;
 };
 
 export type PiStatus = {

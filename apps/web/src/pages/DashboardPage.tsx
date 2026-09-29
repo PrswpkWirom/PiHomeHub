@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowRight, Clock3, Cpu, ExternalLink, HardDrive, MemoryStick, Monitor, Power, Server, Sparkles, Thermometer, Wifi } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
+import { usePermissions } from "../components/AdminOnly";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
@@ -32,6 +33,7 @@ function DashboardSkeleton() {
 }
 
 export function DashboardPage() {
+  const { isAdmin } = usePermissions();
   const metrics = useFetch<PiStatus>("/api/system/pi", { staleTimeMs: 4_000, refetchIntervalMs: 5_000 });
   const devices = useFetch<DeviceSummary[]>("/api/devices");
   const tailscaleDevices = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
@@ -39,6 +41,8 @@ export function DashboardPage() {
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const tasks = useFetch<TaskItem[]>("/api/tasks");
   const [wolMessage, setWolMessage] = useState<Feedback | null>(null);
+  const [waking, setWaking] = useState(false);
+  const wakeLock = useRef(false);
 
   const activeManual = devices.data?.filter((device) => device.status === "online") ?? [];
   const activeTailscale = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
@@ -53,22 +57,30 @@ export function DashboardPage() {
   }, []);
 
   const wake = async (deviceId: number, name: string) => {
+    if (!isAdmin || wakeLock.current) return;
+    wakeLock.current = true; setWaking(true);
     setWolMessage({ kind: "progress", text: `Sending wake packet to ${name}…` });
     try {
       await api.post("/api/wol/wake", { device_id: deviceId });
       setWolMessage({ kind: "success", text: `Wake packet sent to ${name}.` });
     } catch (error) {
       setWolMessage(errorFeedback(error, `Wake request for ${name} failed.`));
+    } finally {
+      wakeLock.current = false; setWaking(false);
     }
   };
 
   const wakeTailscale = async (device: TailscaleDevice) => {
+    if (!isAdmin || wakeLock.current) return;
+    wakeLock.current = true; setWaking(true);
     setWolMessage({ kind: "progress", text: `Sending wake packet to ${device.display_name}…` });
     try {
       await api.post(`/api/tailscale/devices/${device.id}/wake`);
       setWolMessage({ kind: "success", text: `Wake packet sent to ${device.display_name}.` });
     } catch (error) {
       setWolMessage(errorFeedback(error, `Wake request for ${device.display_name} failed.`));
+    } finally {
+      wakeLock.current = false; setWaking(false);
     }
   };
 
@@ -122,15 +134,16 @@ export function DashboardPage() {
             {activeManual.slice(0, 3).map((device) => (
               <div className="device-row" key={`manual-${device.id ?? device.name}`}>
                 <div className="device-avatar"><Monitor size={20} /></div><div className="min-w-0 flex-1"><p>{device.name}</p><span>{device.description ?? device.device_type}</span></div><StatusPill status="online" />
-                {device.supports_wol && device.id ? <button className="round-action" aria-label={`Wake ${device.name}`} onClick={() => void wake(device.id!, device.name)}><Power size={16} /></button> : null}
+                {device.supports_wol && device.id ? <button className="round-action" disabled={!isAdmin || waking} aria-label={`Wake ${device.name}`} aria-describedby={!isAdmin ? "dashboard-wol-admin-required" : undefined} onClick={() => { if (isAdmin) void wake(device.id!, device.name); }}><Power size={16} /></button> : null}
               </div>
             ))}
             {activeTailscale.slice(0, Math.max(0, 3 - activeManual.length)).map((device) => (
               <div className="device-row" key={`tailscale-${device.id}`}>
                 <div className="device-avatar device-avatar--cyan"><Monitor size={20} /></div><div className="min-w-0 flex-1"><p>{device.display_name}</p><span>{device.os ?? "Tailscale device"}</span></div><StatusPill status="online" />
-                {device.supports_wol && device.mac_address ? <button className="round-action" aria-label={`Wake ${device.display_name}`} onClick={() => void wakeTailscale(device)}><Power size={16} /></button> : null}
+                {device.supports_wol && device.mac_address ? <button className="round-action" disabled={!isAdmin || waking} aria-label={`Wake ${device.display_name}`} aria-describedby={!isAdmin ? "dashboard-wol-admin-required" : undefined} onClick={() => { if (isAdmin) void wakeTailscale(device); }}><Power size={16} /></button> : null}
               </div>
             ))}
+            {!isAdmin && (activeManual.some((device) => device.supports_wol && device.id) || activeTailscale.some((device) => device.supports_wol && device.mac_address)) ? <p id="dashboard-wol-admin-required" className="text-xs text-muted">Administrator access required to send Wake-on-LAN.</p> : null}
             {!devices.loading && !tailscaleDevices.loading && activeDevices === 0 ? <p className="empty-state">No device is online right now. Check Tailscale sync or your LAN connection.</p> : null}
             <FeedbackMessage feedback={wolMessage} onDismiss={() => setWolMessage(null)} />
           </div>

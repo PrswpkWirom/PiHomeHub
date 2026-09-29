@@ -13,6 +13,20 @@ PiHomeHub is for a trusted LAN or Tailscale tailnet, never direct public exposur
 - Caddy strips cookies, authorization, and CSRF headers before proxying static-file requests to the web container.
 - MQTT is opt-in, rejects anonymous clients, and requires a password file plus per-device ACLs.
 - Security events are stored in `audit_events`; secret-bearing fields are redacted.
+- Account role/status changes acquire a SQLite write transaction before reading
+  administrator state, revalidate the acting session after locking, update the
+  target, revoke that account's sessions, and record the audit event in one
+  transaction. A bounded lock timeout returns a retryable response. Failed
+  policy decisions are audited after rollback with sanitized reason codes.
+- Password changes commit the hash, recorded timestamp, session revocation,
+  and successful audit record together. Session cookies are removed only after
+  that commit succeeds.
+- Request validation responses contain only safe location, type, and message
+  fields; submitted request values and error context are omitted. The
+  administrator audit summary endpoint omits raw metadata and request bodies.
+- An enabled administrator cannot demote or disable their own account, and
+  backend transaction checks prevent changes that would leave no enabled
+  administrator.
 
 ## Remaining boundaries
 

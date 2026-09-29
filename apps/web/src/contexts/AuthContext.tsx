@@ -1,8 +1,8 @@
 import { FormEvent, createContext, useContext, useEffect, useRef, useState } from "react";
 
-import { api, clearCsrfToken } from "../api/client";
+import { advanceAuthRequestGeneration, ApiError, api, getAuthRequestGeneration, resetAuthRequestGeneration } from "../api/client";
 import { FeedbackMessage } from "../components/FeedbackMessage";
-import { clearApiCache } from "../hooks/useFetch";
+import { clearApiCache, invalidateCache } from "../hooks/useFetch";
 import type { AuthUser } from "../types/api";
 
 type AuthContextValue = {
@@ -12,6 +12,9 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   reauthenticate: (password: string) => Promise<void>;
+  endSession: (notice?: string) => void;
+  authNotice: string | null;
+  authError: string | null;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -19,6 +22,8 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [reauthRequired, setReauthRequired] = useState(false);
   const [reauthPassword, setReauthPassword] = useState("");
   const [reauthError, setReauthError] = useState<string | null>(null);
@@ -26,21 +31,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const reauthDialog = useRef<HTMLFormElement>(null);
   const backgroundContent = useRef<HTMLDivElement>(null);
 
+  const endSession = (notice?: string) => {
+    resetAuthRequestGeneration();
+    clearApiCache();
+    setUser(null);
+    setLoading(false);
+    setAuthNotice(notice ?? null);
+    setAuthError(null);
+    setReauthRequired(false);
+    setReauthPassword("");
+    setReauthError(null);
+    navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" });
+  };
+
   const closeReauthentication = () => {
+    if (reauthenticating) return;
     setReauthRequired(false);
     setReauthPassword("");
     setReauthError(null);
   };
 
   const refresh = async () => {
+    const generation = getAuthRequestGeneration();
+    setAuthError(null);
+    if (!user) setLoading(true);
     try {
       const nextUser = await api.get<AuthUser>("/api/auth/me");
+      if (generation !== getAuthRequestGeneration()) return;
       setUser(nextUser);
-    } catch {
-      clearCsrfToken();
-      setUser(null);
+      setAuthNotice(null);
+    } catch (error) {
+      if (generation !== getAuthRequestGeneration()) return;
+      if (error instanceof ApiError && error.status === 401) {
+        endSession("Your session ended. Sign in again.");
+      } else {
+        setAuthError("PiHomeHub could not verify the sign-in session. Check the connection and retry.");
+      }
     } finally {
-      setLoading(false);
+      if (generation === getAuthRequestGeneration()) setLoading(false);
     }
   };
 
@@ -89,25 +117,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const requireRecentAuthentication = () => setReauthRequired(true);
+    const sessionInvalid = () => endSession("Your session ended. Sign in again.");
     window.addEventListener("pihomehub:recent-auth-required", requireRecentAuthentication);
-    return () => window.removeEventListener("pihomehub:recent-auth-required", requireRecentAuthentication);
+    window.addEventListener("pihomehub:session-invalid", sessionInvalid);
+    return () => {
+      window.removeEventListener("pihomehub:recent-auth-required", requireRecentAuthentication);
+      window.removeEventListener("pihomehub:session-invalid", sessionInvalid);
+    };
   }, []);
 
   const login = async (username: string, password: string) => {
+    resetAuthRequestGeneration();
+    clearApiCache();
+    setAuthNotice(null);
+    setAuthError(null);
     const nextUser = await api.post<AuthUser>("/api/auth/login", { username, password });
     setUser(nextUser);
   };
 
   const logout = async () => {
     await api.post("/api/auth/logout");
-    clearCsrfToken();
-    clearApiCache();
-    setUser(null);
-    navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_AUTH_CACHES" });
+    endSession("You have signed out.");
   };
 
   const reauthenticate = async (password: string) => {
     await api.post("/api/auth/reauthenticate", { password });
+    advanceAuthRequestGeneration();
+    invalidateCache("/api/auth/sessions");
   };
 
   const submitReauthentication = async (event: FormEvent) => {
@@ -125,7 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh, reauthenticate }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, reauthenticate, endSession, authNotice, authError }}>
       <div ref={backgroundContent} className="contents" aria-hidden={reauthRequired || undefined}>
         {children}
       </div>
@@ -142,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             <div>
               <h2 id="reauth-title" className="text-xl font-semibold text-mist">Confirm it’s you</h2>
               <p className="mt-2 text-sm leading-6 text-muted">
-                Enter your password to continue with sensitive administrator actions. Retry the action after confirmation.
+                Enter your password to continue with this sensitive action. Retry it after confirmation.
               </p>
             </div>
             <label className="field-label">

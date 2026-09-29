@@ -10,11 +10,13 @@ home infrastructure into one authenticated interface.
   quick links, and planner tasks.
 - **Devices:** Manual device inventory, status checks, Wake-on-LAN, and
   Tailscale machine synchronization.
-- **Services:** Status and control for the fixed managed-service allowlist:
-  AdGuard Home, Gitea, Uptime Kuma, Vaultwarden, and Mosquitto.
+- **Services:** Status, control, links, and port configuration for the fixed
+  managed-service allowlist: AdGuard Home, Gitea, Uptime Kuma, Vaultwarden,
+  and Mosquitto.
 - **Planner:** Create and manage maintenance or household tasks.
-- **Settings:** Tailscale credentials and sync, service links, service port
-  configuration, sessions, and administrator controls.
+- **Settings:** General theme preferences, personal account/password/session
+  controls, Tailscale access status and administrator controls, administrator
+  user management and security events, and backend-reported system details.
 - **Security:** Viewer/admin authorization, opaque revocable sessions, CSRF and
   origin checks, Argon2id password hashing, recent-authentication checks, login
   rate limiting, and audit events.
@@ -84,7 +86,7 @@ Run these commands from the repository root.
 4. In another terminal, run the API:
 
    ```bash
-   uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers
+   .venv/bin/uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers
    ```
 
    Open <http://localhost:5173>.
@@ -95,6 +97,12 @@ above and run:
 ```bash
 ./scripts/run-dev.sh
 ```
+
+The default local administrator credentials for this checkout are username
+`admin` and password `1234567891011`. The create-admin CLI prompts securely;
+the password is stored as a hash in the local database. For role testing, add
+a second account through `create-admin --allow-additional-admin`, then use the
+Users section to demote it to Viewer. Account creation stays in the CLI.
 
 ## Docker development
 
@@ -107,21 +115,25 @@ initialize the persistent development database:
 cp infra/.env.example infra/.env
 
 docker compose \
+  --env-file infra/.env \
   -f infra/docker-compose.yml \
   -f infra/docker-compose.dev.yml \
   build
 
 docker compose \
+  --env-file infra/.env \
   -f infra/docker-compose.yml \
   -f infra/docker-compose.dev.yml \
   run --rm backend alembic upgrade head
 
 docker compose \
+  --env-file infra/.env \
   -f infra/docker-compose.yml \
   -f infra/docker-compose.dev.yml \
   run --rm backend python -m app.cli create-admin
 
 docker compose \
+  --env-file infra/.env \
   -f infra/docker-compose.yml \
   -f infra/docker-compose.dev.yml \
   up
@@ -220,13 +232,13 @@ bootstraps.
 # Backend tests
 PYTHONPATH=apps/backend .venv/bin/pytest apps/backend/app/tests
 
-# Frontend tests and production build
-cd apps/web
-npm test -- --run
-npm run build
+# Frontend tests
+PATH="$PWD/.tools/node/bin:$PATH" npm --prefix apps/web test -- --run
+
+# Frontend production build
+PATH="$PWD/.tools/node/bin:$PATH" npm --prefix apps/web run build
 
 # Validate the production Compose file (after creating infra/.env)
-cd ../..
 docker compose --env-file infra/.env -f infra/docker-compose.yml config -q
 ```
 

@@ -1,9 +1,10 @@
 import { Navigate } from "react-router-dom";
 
+import { FeedbackMessage } from "../components/FeedbackMessage";
 import { useAuth } from "../contexts/AuthContext";
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, authError, refresh } = useAuth();
 
   if (loading) {
     return (
@@ -17,6 +18,16 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
+    if (authError) {
+      return (
+        <main className="grid min-h-dvh place-items-center bg-app px-4 text-mist">
+          <section className="app-panel w-full max-w-md">
+            <h1 className="text-xl font-semibold">Unable to verify sign-in</h1>
+            <FeedbackMessage feedback={{ kind: "error", persistent: true, text: authError }} action={<button className="btn-secondary" type="button" onClick={() => void refresh()}>Retry connection</button>} />
+          </section>
+        </main>
+      );
+    }
     return <Navigate to="/login" replace />;
   }
 

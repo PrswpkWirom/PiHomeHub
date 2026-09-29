@@ -2,20 +2,27 @@ import { FormEvent, useState } from "react";
 import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
 
 import { api } from "../api/client";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Field } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { useFetch } from "../hooks/useFetch";
 import type { TaskItem } from "../types/api";
+import { useRef } from "react";
 
 export function PlannerPage() {
   const { data, loading, error, setData, refetch } = useFetch<TaskItem[]>("/api/tasks");
   const [title, setTitle] = useState("");
   const [dueLabel, setDueLabel] = useState("");
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<TaskItem | null>(null);
+  const busyRef = useRef(false);
 
   const createTask = async (event: FormEvent) => {
     event.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     setFeedback(null);
     try {
       const newTask = await api.post<TaskItem>("/api/tasks", { title, due_label: dueLabel || null });
@@ -25,10 +32,14 @@ export function PlannerPage() {
       setFeedback({ kind: "success", text: `Task “${newTask.title}” created.` });
     } catch (error) {
       setFeedback(errorFeedback(error, "The task could not be created."));
+    } finally {
+      busyRef.current = false; setBusy(false);
     }
   };
 
   const toggleTask = async (task: TaskItem) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     setFeedback(null);
     try {
       const updated = await api.patch<TaskItem>(`/api/tasks/${task.id}`, { is_complete: !task.is_complete });
@@ -39,10 +50,14 @@ export function PlannerPage() {
       });
     } catch (error) {
       setFeedback(errorFeedback(error, `Task “${task.title}” could not be updated.`));
+    } finally {
+      busyRef.current = false; setBusy(false);
     }
   };
 
   const removeTask = async (task: TaskItem) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
     setFeedback(null);
     try {
       await api.delete(`/api/tasks/${task.id}`);
@@ -50,6 +65,8 @@ export function PlannerPage() {
       setFeedback({ kind: "success", text: `Task “${task.title}” deleted.` });
     } catch (error) {
       setFeedback(errorFeedback(error, `Task “${task.title}” could not be deleted.`));
+    } finally {
+      busyRef.current = false; setBusy(false);
     }
   };
 
@@ -68,7 +85,7 @@ export function PlannerPage() {
         <form className="space-y-4" onSubmit={createTask}>
           <Field label="Task title" value={title} onChange={(e) => { setTitle(e.target.value); setFeedback(null); }} required />
           <Field label="Due label" help="Optional short timing note, such as This weekend." value={dueLabel} onChange={(e) => { setDueLabel(e.target.value); setFeedback(null); }} />
-          <button className="btn-primary">
+          <button className="btn-primary" disabled={busy}>
             <Plus size={17} />
             Create task
           </button>
@@ -94,11 +111,11 @@ export function PlannerPage() {
                 <p className="mt-1 text-sm text-muted">{task.due_label ?? "No due label"}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button className="btn-secondary" onClick={() => void toggleTask(task)}>
+                <button className="btn-secondary" disabled={busy} onClick={() => void toggleTask(task)}>
                   {task.is_complete ? <RotateCcw size={16} /> : <Check size={16} />}
                   {task.is_complete ? "Undo" : "Done"}
                 </button>
-                <button className="btn-danger" onClick={() => void removeTask(task)}>
+                <button className="btn-danger" disabled={busy} onClick={() => setPendingDelete(task)}>
                   <Trash2 size={16} />
                   Delete
                 </button>
@@ -109,6 +126,7 @@ export function PlannerPage() {
         </div>
       </Panel>
       </div>
+      {pendingDelete ? <ConfirmDialog title={`Delete “${pendingDelete.title}”?`} description="This removes the task from the shared PiHomeHub planner." confirmLabel="Delete task" onCancel={() => setPendingDelete(null)} onConfirm={() => { const task = pendingDelete; setPendingDelete(null); void removeTask(task); }} /> : null}
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Home, ListChecks, LogOut, Monitor, Search, Server, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -5,6 +6,8 @@ import type { LucideIcon } from "lucide-react";
 import { BrandMark } from "../components/BrandMark";
 import { OfflineIndicator } from "../components/OfflineIndicator";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { usePermissions } from "../components/AdminOnly";
+import { FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { useAuth } from "../contexts/AuthContext";
 
 const navItems: { to: string; label: string; shortLabel: string; icon: LucideIcon }[] = [
@@ -16,14 +19,25 @@ const navItems: { to: string; label: string; shortLabel: string; icon: LucideIco
 ];
 
 export function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, authError, refresh } = useAuth();
+  const { roleLabel } = usePermissions();
+  const [signOutFeedback, setSignOutFeedback] = useState<Feedback | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const currentPage = navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? "Overview";
 
   const signOut = async () => {
-    await logout();
-    navigate("/login");
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      await logout();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      setSignOutFeedback({ kind: "error", text: error instanceof Error ? error.message : "Sign out failed." });
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -59,9 +73,9 @@ export function AppLayout() {
             <div className="user-avatar">{user?.username?.slice(0, 1).toUpperCase() || "A"}</div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-mist">{user?.username}</p>
-              <p className="text-xs text-muted">Administrator</p>
+              <p className="text-xs text-muted">{roleLabel}</p>
             </div>
-            <button className="icon-button h-9 w-9" aria-label="Sign out" onClick={() => void signOut()}><LogOut size={15} /></button>
+            <button className="icon-button h-9 w-9" aria-label="Sign out" disabled={signingOut} onClick={() => void signOut()}><LogOut size={15} /></button>
           </div>
         </div>
       </aside>
@@ -81,7 +95,9 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main id="main-content" className="main-content">
+        <main id="main-content" className="main-content" data-dialog-focus-fallback tabIndex={-1}>
+          <FeedbackMessage feedback={authError ? { kind: "error", persistent: true, text: authError } : null} action={<button className="btn-secondary" type="button" onClick={() => void refresh()}>Retry session check</button>} />
+          <FeedbackMessage feedback={signOutFeedback} onDismiss={() => setSignOutFeedback(null)} />
           <div key={location.pathname} className="route-content">
             <Outlet />
           </div>

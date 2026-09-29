@@ -34,6 +34,7 @@ def record_audit_event(
     target_type: str | None = None,
     target_identifier: str | int | None = None,
     metadata: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> AuditEvent:
     row = AuditEvent(
         request_id=getattr(request.state, "request_id", None) if request else None,
@@ -46,8 +47,11 @@ def record_audit_event(
         metadata_json=json.dumps(sanitize_metadata(metadata), sort_keys=True),
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
+    if commit:
+        db.commit()
+        db.refresh(row)
+    else:
+        db.flush()
     return row
 
 

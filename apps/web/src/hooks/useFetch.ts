@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useState } from "react";
 
-import { api } from "../api/client";
+import { api, StaleRequestError } from "../api/client";
 
 const DEFAULT_STALE_TIME_MS = 30_000;
 
@@ -10,6 +10,7 @@ type CacheEntry<T = unknown> = {
   error: string | null;
   updatedAt: number | null;
   promise: Promise<T> | null;
+  requestVersion: number;
   subscribers: Set<() => void>;
 };
 
@@ -38,6 +39,7 @@ function getEntry<T>(path: string) {
       error: null,
       updatedAt: null,
       promise: null,
+      requestVersion: 0,
       subscribers: new Set()
     };
     cache.set(path, entry as CacheEntry);
@@ -78,9 +80,11 @@ function load<T>(path: string, force = false) {
   }
 
   entry.error = null;
+  const requestVersion = ++entry.requestVersion;
   entry.promise = api
     .get<T>(path)
     .then((result) => {
+      if (entry.requestVersion !== requestVersion) return result;
       entry.data = result;
       entry.hasData = true;
       entry.updatedAt = Date.now();
@@ -89,13 +93,16 @@ function load<T>(path: string, force = false) {
       return result;
     })
     .catch((err: Error) => {
+      if (err instanceof StaleRequestError || entry.requestVersion !== requestVersion) throw err;
       entry.error = err.message;
       notify(entry as CacheEntry);
       throw err;
     })
     .finally(() => {
-      entry.promise = null;
-      notify(entry as CacheEntry);
+      if (entry.requestVersion === requestVersion) {
+        entry.promise = null;
+        notify(entry as CacheEntry);
+      }
     });
 
   notify(entry as CacheEntry);
@@ -106,6 +113,8 @@ export function setCachedData<T>(path: string, value: SetStateAction<T | null>) 
   const entry = getEntry<T>(path);
   const current = entry.hasData ? entry.data : null;
   const nextData = typeof value === "function" ? (value as (previous: T | null) => T | null)(current) : value;
+  entry.requestVersion += 1;
+  entry.promise = null;
   entry.data = nextData;
   entry.hasData = true;
   entry.error = null;
@@ -118,18 +127,32 @@ export function invalidateCache(path: string) {
   if (!entry) {
     return;
   }
+  invalidateEntry(entry);
+}
+
+export function invalidateCachePrefix(prefix: string) {
+  cache.forEach((entry, path) => {
+    if (path.startsWith(prefix)) invalidateEntry(entry);
+  });
+}
+
+function invalidateEntry(entry: CacheEntry) {
+  if (entry.promise) {
+    entry.requestVersion += 1;
+    entry.promise = null;
+  }
   entry.updatedAt = 0;
   notify(entry);
 }
 
 export function clearApiCache() {
   cache.forEach((entry) => {
+    entry.requestVersion += 1;
     entry.data = null;
     entry.hasData = false;
     entry.error = null;
     entry.updatedAt = null;
     entry.promise = null;
-    notify(entry);
   });
   cache.clear();
 }

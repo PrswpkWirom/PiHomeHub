@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.services.account_security_service import AccountSecurityError, change_password_atomically
 from app.core.security import (
     CSRF_HEADER_NAME,
     cleanup_expired_sessions,
@@ -256,22 +257,24 @@ async def reauthenticate(
 
 
 @router.post("/change-password")
-async def change_password(
+def change_password(
     payload: ChangePasswordRequest,
     response: Response,
     request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_recent_authentication),
+    current: SessionToken = Depends(get_current_session),
 ):
-    if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     try:
-        user.password_hash = hash_password(payload.new_password)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    user.password_changed_at = utc_now()
-    db.commit()
-    revoke_all_sessions(db, user.id)
+        change_password_atomically(
+            db,
+            actor_user_id=user.id,
+            current_session_id=current.id,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+            request=request,
+        )
+    except AccountSecurityError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     _delete_session_cookie(response)
-    record_audit_event(db, event="password_change", success=True, request=request, actor_user_id=user.id)
     return {"status": "password_changed"}

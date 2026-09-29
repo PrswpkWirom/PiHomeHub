@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { FormEvent, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, LockKeyhole, ShieldCheck, Wifi } from "lucide-react";
 
 import { BrandMark } from "../components/BrandMark";
@@ -8,12 +8,19 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { user, login, authNotice, authError, refresh } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const locationNotice = (location.state as { notice?: unknown } | null)?.notice;
+  const notice = typeof locationNotice === "string" ? locationNotice : authNotice;
+
+  useEffect(() => {
+    if (user) navigate("/dashboard", { replace: true });
+  }, [navigate, user]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault(); setSubmitting(true); setError(null);
@@ -47,6 +54,8 @@ export function LoginPage() {
             <label className="field-label">Username<input className="input-field" value={username} onChange={(e) => { setUsername(e.target.value); setError(null); }} autoComplete="username" /></label>
             <label className="field-label">Password<input className="input-field" type="password" value={password} onChange={(e) => { setPassword(e.target.value); setError(null); }} autoComplete="current-password" /></label>
           </div>
+          <FeedbackMessage className="mt-4" feedback={notice ? { kind: "success", text: notice } : null} />
+          <FeedbackMessage className="mt-4" feedback={authError ? { kind: "error", persistent: true, text: authError } : null} action={<button className="btn-secondary" type="button" onClick={() => void refresh()}>Retry session check</button>} />
           <FeedbackMessage className="mt-4" feedback={error ? { kind: "error", persistent: true, text: error } : null} />
           <button className="btn-primary mt-6 w-full" disabled={submitting}>
             {submitting ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Signing in…</> : <><LockKeyhole size={17} /> Enter PiHomeHub <ArrowRight size={16} /></>}
