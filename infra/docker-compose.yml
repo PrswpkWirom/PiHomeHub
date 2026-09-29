@@ -1,3 +1,15 @@
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-healthcheck: &http-healthcheck
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 30s
+
 services:
   backend:
     build:
@@ -31,6 +43,7 @@ services:
       PIHOMEHUB_NOTIFICATION_MEMORY_HIGH_PERCENT: ${PIHOMEHUB_NOTIFICATION_MEMORY_HIGH_PERCENT:-90}
       PIHOMEHUB_NOTIFICATION_MEMORY_RECOVERY_PERCENT: ${PIHOMEHUB_NOTIFICATION_MEMORY_RECOVERY_PERCENT:-85}
       PIHOMEHUB_NOTIFICATION_MEMORY_DURATION_SECONDS: ${PIHOMEHUB_NOTIFICATION_MEMORY_DURATION_SECONDS:-300}
+      PIHOMEHUB_NOTIFICATION_METRIC_RECOVERY_SECONDS: ${PIHOMEHUB_NOTIFICATION_METRIC_RECOVERY_SECONDS:-120}
       PIHOMEHUB_COMPOSE_ENV_FILE: /run/pihomehub/infra.env
       PIHOMEHUB_PORT_CONFIGURATION_MODE: operator
     expose:
@@ -53,12 +66,20 @@ services:
         bind:
           create_host_path: false
     depends_on:
-      - control-agent
-      - wol-agent
+      control-agent:
+        condition: service_healthy
+      wol-agent:
+        condition: service_healthy
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
+    init: true
+    stop_grace_period: 130s
     networks:
       - edge
       - control
     restart: unless-stopped
+    logging: *bounded-logging
     security_opt:
       - no-new-privileges:true
 
@@ -73,9 +94,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/health', timeout=3).read()"]
+    init: true
+    stop_grace_period: 130s
     networks:
       - control
     restart: unless-stopped
+    logging: *bounded-logging
     security_opt:
       - no-new-privileges:true
 
@@ -90,7 +117,12 @@ services:
     # interface. It listens only on the private edge bridge gateway and has no
     # Docker socket or other host mounts.
     network_mode: host
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://172.30.0.1:9001/health', timeout=3).read()"]
+    init: true
     restart: unless-stopped
+    logging: *bounded-logging
     security_opt:
       - no-new-privileges:true
 
@@ -100,9 +132,14 @@ services:
       dockerfile: Dockerfile
     expose:
       - "80"
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+    init: true
     networks:
       - edge
     restart: unless-stopped
+    logging: *bounded-logging
     security_opt:
       - no-new-privileges:true
 
@@ -118,12 +155,19 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - web
-      - backend
+      web:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      <<: *http-healthcheck
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+    init: true
     networks:
       edge:
         ipv4_address: 172.30.0.2
     restart: unless-stopped
+    logging: *bounded-logging
     security_opt:
       - no-new-privileges:true
 
@@ -139,6 +183,7 @@ services:
       - adguard-work:/opt/adguardhome/work
       - adguard-conf:/opt/adguardhome/conf
     restart: unless-stopped
+    logging: *bounded-logging
 
   gitea:
     image: docker.gitea.com/gitea:1.26.4@sha256:8e25c717b8f748445e15ec46e0390f577cb628101184cb0a150d1dae126c1f39
@@ -153,6 +198,7 @@ services:
     volumes:
       - gitea-data:/data
     restart: unless-stopped
+    logging: *bounded-logging
 
   uptime-kuma:
     image: louislam/uptime-kuma:2.4.0@sha256:91e963bfda569ba115206e843febb446f473ab525add4e08b2b9e3beffa16985
@@ -163,6 +209,7 @@ services:
     volumes:
       - uptime-kuma-data:/app/data
     restart: unless-stopped
+    logging: *bounded-logging
 
   vaultwarden:
     image: vaultwarden/server:1.36.0@sha256:d626d04934cd1192ad8ced1adb975099fca78cec33ab467d2d3c923cde7f3b0c
@@ -173,6 +220,7 @@ services:
     volumes:
       - vaultwarden-data:/data
     restart: unless-stopped
+    logging: *bounded-logging
 
   mosquitto:
     image: eclipse-mosquitto:2.1.2-alpine@sha256:6f8d8a947c506f8a2290ec65cd4bd2bc7cb4d43fb5f6271f861cb013e2ef9797
@@ -186,6 +234,7 @@ services:
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
     restart: unless-stopped
+    logging: *bounded-logging
 
 networks:
   edge:

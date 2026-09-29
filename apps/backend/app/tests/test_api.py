@@ -13,6 +13,28 @@ from app.models.user import AppSetting
 
 
 @pytest.mark.anyio
+async def test_backend_health_reports_database_failure_without_details(app):
+    from sqlalchemy.exc import OperationalError
+    from app.database.db import get_db
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        assert (await client.get("/health")).json() == {"status": "ok"}
+        original = app.dependency_overrides[get_db]
+        async def unavailable_database():
+            from unittest.mock import Mock
+            db = Mock()
+            db.execute.side_effect = OperationalError("private sql", {}, RuntimeError("private error"))
+            yield db
+        app.dependency_overrides[get_db] = unavailable_database
+        try:
+            response = await client.get("/health")
+            assert response.status_code == 503
+            assert response.json() == {"status": "unavailable"}
+        finally:
+            app.dependency_overrides[get_db] = original
+
+
+@pytest.mark.anyio
 async def test_login_and_me(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})

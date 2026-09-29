@@ -175,6 +175,7 @@ apps/backend/pihomehub.db-*
 *.sqlite-journal
 *.sqlite3-journal
 *.notification-monitor.lock
+backups/
 
 # Local credentials, certificates, and private key material
 *.key

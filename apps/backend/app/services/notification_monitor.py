@@ -4,6 +4,7 @@ import asyncio
 import fcntl
 import json
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -93,6 +94,7 @@ def _resolve_active_events(db: Session, state: dict[str, Any], now: datetime) ->
         resolve_incident(db, event_key, now)
     state.pop("active_events", None)
     state.pop("active_event", None)
+    state.pop("active_severity", None)
 
 
 def _notify(
@@ -154,9 +156,18 @@ def _service_sample(db: Session, slug: str, raw: dict[str, Any], now: datetime, 
     state = _state(db, key)
     status = str(raw.get("status", "unknown")).lower()
     health = raw.get("health_status") if raw.get("health_status") in {"healthy", "unhealthy", "starting"} else None
-    observed = "unhealthy" if status == "running" and health == "unhealthy" else "starting" if status == "running" and health == "starting" else "running" if status == "running" else status if status in {"exited", "dead", "stopped", "missing"} else "unknown"
+    if status == "running":
+        observed = health if health in {"unhealthy", "starting"} else "running"
+    elif status in {"exited", "dead", "stopped"}:
+        observed = "stopped"
+    else:
+        observed = "missing" if status == "missing" else "unknown"
+    if state.get("stable") in {"exited", "dead"}:
+        state["stable"] = "stopped"
     state["last_cycle"] = now.isoformat()
     if observed == "unknown":
+        if isinstance(state.get("pending_action"), dict):
+            state["pending_action"]["successes"] = 0
         state["candidate"] = None
         state["count"] = 0
         _save_state(db, key, state, now)
@@ -245,7 +256,7 @@ def _service_sample(db: Session, slug: str, raw: dict[str, Any], now: datetime, 
                     title=f"{service_name} {'health check failed' if unhealthy else 'stopped'}",
                     message=f"{service_name} has remained {observed} for three checks.",
                     source_type="service", source_id=slug, target_path="/services", now=now)
-        elif old in {"unhealthy", "exited", "dead", "stopped", "starting"} and observed == "running":
+        elif old in {"unhealthy", "exited", "dead", "stopped", "missing", "starting"} and observed == "running":
             _resolve_active_events(db, state, now)
             event_key = _new_incident(state, f"service-recovered:{slug}")
             _notify(db, event_key=event_key, event_type="service_recovered", category="service", severity="success",
@@ -261,10 +272,15 @@ def _metric_transition(
     trigger: Any, recovery: Any, warning_event: str, title: str, metric_name: str,
     recovery_title: str, path: str, settings: Settings, critical_trigger: Any = None,
     degraded: Any = None, critical_event: str | None = None, degraded_event: str | None = None,
+    recovery_duration: int | None = None,
 ):
-    if value is None:
-        return
     state = _state(db, key)
+    if value is None or not math.isfinite(value):
+        if state:
+            for field in ("candidate", "candidate_since", "candidate_level", "recover_since"):
+                state.pop(field, None)
+            _save_state(db, key, state, now)
+        return
     previous_sample = state.get("last_sample")
     if previous_sample:
         then = datetime.fromisoformat(previous_sample)
@@ -277,16 +293,17 @@ def _metric_transition(
     if level == "normal":
         next_level = "critical" if critical_trigger and critical_trigger(value) else "warning" if trigger(value) else "normal"
         candidate_field, predicate = "candidate_since", next_level != "normal"
+    elif recovery(value):
+        next_level, candidate_field, predicate = "normal", "recover_since", True
     elif level == "warning" and critical_trigger and critical_trigger(value):
         next_level, candidate_field, predicate = "critical", "candidate_since", True
     elif level == "critical" and degraded and degraded(value):
         next_level, candidate_field, predicate = "warning", "candidate_since", True
-    elif level != "normal" and recovery(value):
-        next_level, candidate_field, predicate = "normal", "recover_since", True
     else:
         next_level, candidate_field, predicate = level, "candidate_since", False
     if not predicate:
-        state[candidate_field] = None
+        for field in ("candidate_since", "recover_since", "candidate_level"):
+            state.pop(field, None)
         _save_state(db, key, state, now)
         return
     if next_level != level and state.get("candidate_level") != next_level:
@@ -297,7 +314,8 @@ def _metric_transition(
         state[candidate_field] = now.isoformat()
         _save_state(db, key, state, now)
         return
-    if now - datetime.fromisoformat(started) < timedelta(seconds=duration):
+    required_duration = recovery_duration if next_level == "normal" and recovery_duration is not None else duration
+    if now - datetime.fromisoformat(started) < timedelta(seconds=required_duration):
         _save_state(db, key, state, now)
         return
     state[candidate_field] = None
@@ -370,40 +388,44 @@ async def run_monitor_cycle(session_factory: sessionmaker, settings: Settings | 
                 if last_sample and now - datetime.fromisoformat(last_sample) > timedelta(seconds=settings.notification_monitor_interval_seconds * 2):
                     for field in ("candidate", "candidate_since", "recover_since", "failures", "successes", "count"):
                         state.pop(field, None)
+                    if isinstance(state.get("pending_action"), dict):
+                        state["pending_action"]["successes"] = 0
                     row.value_json = json.dumps(state, sort_keys=True, separators=(",", ":"))
             except (ValueError, TypeError):
                 continue
 
         for device in device_descriptors:
-            if device.id in results.get("devices", {}):
-                _device_sample(db, device, results["devices"][device.id], now, settings)
-        for slug, raw in results.get("services", {}).items():
+            _device_sample(db, device, results.get("devices", {}).get(device.id, "unknown"), now, settings)
+        for slug in settings.monitored_service_names:
             if slug in CONTROLLABLE_SERVICES:
+                raw = results.get("services", {}).get(slug, {"status": "unknown"})
                 _service_sample(db, slug, raw, now, settings)
         metrics = results.get("metrics")
-        if metrics is not None:
-            _metric_transition(db, key="metric:temperature", value=metrics.temperature_c, now=now,
-                duration=settings.notification_temperature_duration_seconds,
-                trigger=lambda v: v > settings.notification_temperature_high_c,
-                recovery=lambda v: v <= settings.notification_temperature_recovery_c,
-                warning_event="temperature_high", title="Raspberry Pi temperature", metric_name="temperature",
-                recovery_title="Raspberry Pi temperature returned to normal", path="/settings/system", settings=settings)
-            _metric_transition(db, key="metric:disk", value=metrics.disk_percent, now=now,
-                duration=settings.notification_disk_duration_seconds,
-                trigger=lambda v: v > settings.notification_disk_warning_percent,
-                critical_trigger=lambda v: v > settings.notification_disk_critical_percent,
-                degraded=lambda v: v <= settings.notification_disk_degraded_percent, degraded_event="disk_degraded",
-                recovery=lambda v: v <= settings.notification_disk_recovery_percent,
-                warning_event="disk_high", critical_event="disk_critical", title="Disk usage",
-                metric_name="disk", recovery_title="Disk usage returned to normal", path="/settings/system", settings=settings)
-            _metric_transition(db, key="metric:memory", value=metrics.memory_percent, now=now,
-                duration=settings.notification_memory_duration_seconds,
-                trigger=lambda v: v > settings.notification_memory_high_percent,
-                recovery=lambda v: v <= settings.notification_memory_recovery_percent,
-                warning_event="memory_high", title="Memory usage", metric_name="memory",
-                recovery_title="Memory usage returned to normal", path="/settings/system", settings=settings)
+        _metric_transition(db, key="metric:temperature", value=getattr(metrics, "temperature_c", None), now=now,
+            duration=settings.notification_temperature_duration_seconds,
+            recovery_duration=settings.notification_metric_recovery_seconds,
+            trigger=lambda v: v > settings.notification_temperature_high_c,
+            recovery=lambda v: v <= settings.notification_temperature_recovery_c,
+            warning_event="temperature_high", title="Raspberry Pi temperature", metric_name="temperature",
+            recovery_title="Raspberry Pi temperature returned to normal", path="/settings/system", settings=settings)
+        _metric_transition(db, key="metric:disk", value=getattr(metrics, "disk_percent", None), now=now,
+            duration=settings.notification_disk_duration_seconds,
+            recovery_duration=settings.notification_metric_recovery_seconds,
+            trigger=lambda v: v > settings.notification_disk_warning_percent,
+            critical_trigger=lambda v: v > settings.notification_disk_critical_percent,
+            degraded=lambda v: v <= settings.notification_disk_degraded_percent, degraded_event="disk_degraded",
+            recovery=lambda v: v <= settings.notification_disk_recovery_percent,
+            warning_event="disk_high", critical_event="disk_critical", title="Disk usage",
+            metric_name="disk", recovery_title="Disk usage returned to normal", path="/settings/system", settings=settings)
+        _metric_transition(db, key="metric:memory", value=getattr(metrics, "memory_percent", None), now=now,
+            duration=settings.notification_memory_duration_seconds,
+            recovery_duration=settings.notification_metric_recovery_seconds,
+            trigger=lambda v: v > settings.notification_memory_high_percent,
+            recovery=lambda v: v <= settings.notification_memory_recovery_percent,
+            warning_event="memory_high", title="Memory usage", metric_name="memory",
+            recovery_title="Memory usage returned to normal", path="/settings/system", settings=settings)
 
-        all_sources_failed = not results
+        collection_failed = any(source not in results for source in ("devices", "services", "metrics")) or metrics is None
         monitor_state = _state(db, "monitor:availability")
         previous_cycle = monitor_state.get("last_cycle")
         if previous_cycle:
@@ -417,14 +439,14 @@ async def run_monitor_cycle(session_factory: sessionmaker, settings: Settings | 
                 monitor_state["failures"] = 0
                 monitor_state["successes"] = 0
         monitor_state["last_cycle"] = now.isoformat()
-        if all_sources_failed:
+        if collection_failed:
             monitor_state["failures"] = int(monitor_state.get("failures", 0)) + 1
             monitor_state["successes"] = 0
             if monitor_state["failures"] >= 3 and not monitor_state.get("active_event"):
                 event_key = _new_incident(monitor_state, "monitor-unavailable")
                 monitor_state["active_event"] = event_key
                 _notify(db, event_key=event_key, event_type="monitoring_unavailable", category="system", severity="warning",
-                    title="Infrastructure monitoring unavailable", message="PiHomeHub could not collect any infrastructure status for three checks.",
+                    title="Infrastructure monitoring unavailable", message="PiHomeHub could not collect complete infrastructure status for three checks.",
                     source_type="system", source_id="monitor", target_path="/settings/system", now=now)
         else:
             monitor_state["successes"] = int(monitor_state.get("successes", 0)) + 1

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PiHomeHub backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=pihomehub-backup.service
+
+[Install]
+WantedBy=timers.target

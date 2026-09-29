@@ -70,7 +70,6 @@ export function NotificationsPage() {
   const path = `/api/notifications?${params.toString()}`;
   const page = useFetch<NotificationPageResponse>(path);
 
-  useEffect(() => { setCursor(null); setCursorHistory([]); }, [shortcut, category, severity]);
   useEffect(() => {
     const refresh = () => { if (document.visibilityState === "visible" && cursor === null) void page.refetch().catch(() => undefined); };
     document.addEventListener("visibilitychange", refresh);
@@ -100,7 +99,14 @@ export function NotificationsPage() {
     finally { setBusyId(null); }
   };
 
-  const setShortcutAndReset = (value: Shortcut) => { setCursor(null); setCursorHistory([]); setShortcut(value); };
+  const resetPagination = () => { setCursor(null); setCursorHistory([]); };
+  const setShortcutAndReset = (value: Shortcut) => { resetPagination(); setCategory(""); setSeverity(""); setShortcut(value); };
+  const changeCategory = (value: NotificationCategory | "") => {
+    resetPagination(); setCategory(value); if (shortcut === "system") setShortcut("all");
+  };
+  const changeSeverity = (value: NotificationSeverity | "") => {
+    resetPagination(); setSeverity(value); if (shortcut === "critical") setShortcut("all");
+  };
   const goOlder = () => {
     if (!page.data?.next_before_id) return;
     setCursorHistory((items) => [...items, cursor]);
@@ -120,22 +126,22 @@ export function NotificationsPage() {
           <button key={item} type="button" aria-pressed={shortcut === item} onClick={() => setShortcutAndReset(item)} className={`rounded-xl px-4 py-2 text-sm font-semibold capitalize ${shortcut === item ? "bg-accent-soft text-accent" : "border border-line bg-panel text-muted hover:text-mist"}`}>{item}</button>
         ))}
         <label className="sr-only" htmlFor="notification-category">Category</label>
-        <select id="notification-category" value={category} onChange={(event) => setCategory(event.target.value as NotificationCategory | "")} className="input-field min-h-10 w-auto">
+        <select id="notification-category" value={category} onChange={(event) => changeCategory(event.target.value as NotificationCategory | "")} className="input-field min-h-10 w-auto">
           <option value="">All categories</option>{(["device", "service", "system", "security", "tailscale", "planner"] as const).map((item) => <option key={item} value={item}>{item[0].toUpperCase() + item.slice(1)}</option>)}
         </select>
         <label className="sr-only" htmlFor="notification-severity">Severity</label>
-        <select id="notification-severity" value={severity} onChange={(event) => setSeverity(event.target.value as NotificationSeverity | "")} className="input-field min-h-10 w-auto">
+        <select id="notification-severity" value={severity} onChange={(event) => changeSeverity(event.target.value as NotificationSeverity | "")} className="input-field min-h-10 w-auto">
           <option value="">All severities</option>{(["critical", "warning", "info", "success"] as const).map((item) => <option key={item} value={item}>{item[0].toUpperCase() + item.slice(1)}</option>)}
         </select>
         <button type="button" className="btn-secondary ml-auto" disabled={busyId !== null || !page.data?.items.some((item) => !item.read_at)} onClick={() => void markAll()}>{busyId === "all" ? "Marking…" : "Mark all read"}</button>
       </div>
       {mutationError ? <FeedbackMessage feedback={{ kind: "error", persistent: true, text: mutationError }} /> : null}
       {page.loading && !page.data ? <div className="skeleton h-64" aria-label="Loading notifications" /> : null}
-      {page.error && !page.data ? <Panel title="Notifications could not be loaded" description="Your history is still saved. Check the connection and retry."><button className="btn-secondary" onClick={() => void page.refetch()}>Retry</button></Panel> : null}
-      {page.error && page.data ? <FeedbackMessage feedback={{ kind: "warning", persistent: true, text: "Refresh failed. Showing the notifications already loaded." }} action={<button className="btn-secondary" onClick={() => void page.refetch()}>Retry</button>} /> : null}
+      {page.error && !page.data ? <Panel title="Notifications could not be loaded" description="Your history is still saved. Check the connection and retry."><button className="btn-secondary" onClick={() => void page.refetch().catch(() => undefined)}>Retry</button></Panel> : null}
+      {page.error && page.data ? <FeedbackMessage feedback={{ kind: "warning", persistent: true, text: "Refresh failed. Showing the notifications already loaded." }} action={<button className="btn-secondary" onClick={() => void page.refetch().catch(() => undefined)}>Retry</button>} /> : null}
       {page.data?.items.length === 0 ? <Panel title="You’re all caught up" description="No notifications match these filters."><p className="text-sm text-muted">Try another filter or come back when PiHomeHub has an update.</p></Panel> : null}
-      {grouped.map(([heading, items]) => <section key={heading} aria-label={heading}><h2 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.16em] text-muted">{heading}</h2><div className="overflow-hidden rounded-2xl border border-line bg-panel">{items.map((item) => <NotificationRow key={item.id} item={item} busy={busyId === item.id || busyId === "all"} onRead={(id) => void markRead(id)} />)}</div></section>)}
-      {page.data?.items.length ? <nav aria-label="Notification pages" className="flex justify-between"><button className="btn-secondary" disabled={!cursorHistory.length} onClick={goNewer}><ChevronLeft size={16} /> Newer</button><button className="btn-secondary" disabled={!page.data.next_before_id} onClick={goOlder}>Older <ChevronRight size={16} /></button></nav> : null}
+      {grouped.map(([heading, items]) => <section key={heading} aria-label={heading}><h2 className="mb-2 px-1 text-xs font-bold uppercase tracking-[0.16em] text-muted">{heading}</h2><div className="overflow-hidden rounded-2xl border border-line bg-panel">{items.map((item) => <NotificationRow key={item.id} item={item} busy={busyId !== null} onRead={(id) => void markRead(id)} />)}</div></section>)}
+      {cursorHistory.length > 0 || !!page.data?.items.length ? <nav aria-label="Notification pages" className="flex justify-between"><button className="btn-secondary" disabled={!cursorHistory.length || page.loading} onClick={goNewer}><ChevronLeft size={16} /> Newer</button><button className="btn-secondary" disabled={!page.data?.next_before_id || page.loading} onClick={goOlder}>Older <ChevronRight size={16} /></button></nav> : null}
     </div>
   );
 }

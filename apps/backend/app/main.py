@@ -2,16 +2,19 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api import router
 from app.core.config import get_settings
 from app.core.middleware import RequestSecurityMiddleware
 from app.database.bootstrap import bootstrap_database
-from app.database.db import SessionLocal
+from app.database.db import SessionLocal, get_db
 from app.services.notification_monitor import claim_monitor_lock, monitor_loop
 
 logger = logging.getLogger(__name__)
@@ -75,7 +78,11 @@ def create_app(*, include_lifespan: bool = True) -> FastAPI:
         return JSONResponse(status_code=422, content={"detail": safe_errors})
 
     @application.get("/health", include_in_schema=False)
-    async def healthcheck():
+    def healthcheck(db: Session = Depends(get_db)):
+        try:
+            db.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            return JSONResponse(status_code=503, content={"status": "unavailable"})
         return {"status": "ok"}
 
     return application

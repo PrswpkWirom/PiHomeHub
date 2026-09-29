@@ -71,22 +71,23 @@ def get_devices(db: Session) -> list[DeviceSummary]:
             mac_address=device.mac_address,
             broadcast_address=device.broadcast_address,
             supports_wol=device.supports_wol,
-            status=_monitored_device_status(db, device.id) or "unknown",
+            status=_monitored_device_status(db, device) or "unknown",
             description=device.description,
         )
         for device in db.query(Device).order_by(Device.name.asc()).all()
     ]
 
 
-def _monitored_device_status(db: Session, device_id: int) -> str | None:
-    import json
-
-    row = db.query(MonitorState).filter(MonitorState.key == f"device:{device_id}").one_or_none()
+def _monitored_device_status(db: Session, device: Device) -> str | None:
+    row = db.query(MonitorState).filter(MonitorState.key == f"device:{device.id}").one_or_none()
     if row is None:
         return None
     try:
-        state = json.loads(row.value_json).get("stable")
-        return state if state in {"online", "offline"} else None
+        state = json.loads(row.value_json)
+        if state.get("address") != (device.ip_address or device.tailscale_name or ""):
+            return None
+        stable = state.get("stable")
+        return stable if stable in {"online", "offline"} else None
     except (ValueError, AttributeError):
         return None
 

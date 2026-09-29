@@ -38,6 +38,16 @@ def _headers(method: str, path: str, *, nonce: str = "unique-nonce") -> dict[str
 
 
 @pytest.mark.anyio
+async def test_agent_liveness_does_not_run_docker_or_expose_configuration(control_agent):
+    async with AsyncClient(transport=ASGITransport(app=control_agent.app), base_url="http://agent") as client:
+        with patch.object(control_agent.subprocess, "run") as docker:
+            response = await client.get("/health")
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+        docker.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_control_agent_requires_hmac_and_rejects_replay(control_agent):
     path = "/v1/services"
     async with AsyncClient(transport=ASGITransport(app=control_agent.app), base_url="http://agent") as client:

@@ -25,6 +25,7 @@ describe("NotificationControl", () => {
     clearApiCache();
     resetAuthRequestGeneration();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("caps the badge, opens recent events, and marks an event read", async () => {
@@ -42,7 +43,7 @@ describe("NotificationControl", () => {
     expect(screen.getByText("99+")).toBeTruthy();
     fireEvent.click(bell);
     expect(await screen.findByRole("dialog", { name: "Recent notifications" })).toBeTruthy();
-    expect(screen.getByText("Vaultwarden stopped")).toBeTruthy();
+    expect(await screen.findByText("Vaultwarden stopped")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Mark Vaultwarden stopped as read" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
@@ -63,5 +64,34 @@ describe("NotificationControl", () => {
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("You’re all caught up.")).toBeTruthy();
+  });
+
+  it.each([1, 99, 100])("shows the correct badge for %i unread items", async (unread) => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ count: unread })));
+    render(<MemoryRouter><NotificationControl /></MemoryRouter>);
+    await screen.findByRole("button", { name: `Notifications, ${unread} unread` });
+    expect(screen.getByText(unread > 99 ? "99+" : String(unread))).toBeTruthy();
+  });
+
+  it("opens with the keyboard, returns focus on Escape, and cleans up polling", async () => {
+    const interval = vi.spyOn(window, "setInterval");
+    const clear = vi.spyOn(window, "clearInterval");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => String(input).includes("unread-count")
+      ? json({ count: 0 }) : json({ items: [], next_before_id: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const view = render(<MemoryRouter><NotificationControl /></MemoryRouter>);
+    const bell = screen.getByRole("button", { name: "Notifications" });
+    bell.focus();
+    fireEvent.keyDown(bell, { key: "ArrowDown" });
+    const dialog = await screen.findByRole("dialog", { name: "Recent notifications" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    expect(screen.queryByText("0")).toBeNull();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(bell);
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "PATCH")).toBe(false);
+    const timer = interval.mock.results[interval.mock.results.length - 1].value;
+    view.unmount();
+    expect(clear).toHaveBeenCalledWith(timer);
   });
 });

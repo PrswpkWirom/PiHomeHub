@@ -346,3 +346,99 @@ def test_monitor_process_lock_has_single_owner(tmp_path):
     next_owner = claim_monitor_lock(database)
     assert next_owner is not None
     next_owner.close()
+
+
+def test_intentional_stop_stays_quiet_and_missing_service_recovers(app):
+    db = app.state.testing_session_local()
+    settings = get_settings()
+    now = datetime.now(UTC)
+    try:
+        db.add(MonitorState(key="service:gitea", value_json=json.dumps({
+            "stable": "stopped", "ever_running": True,
+        }), updated_at=now))
+        db.flush()
+        for sample in range(5):
+            _service_sample(db, "gitea", {"status": "exited"}, now + timedelta(seconds=sample * 30), settings)
+        assert db.query(Notification).filter(Notification.source_id == "gitea").count() == 0
+        for sample in range(2):
+            _service_sample(db, "gitea", {"status": "running"}, now + timedelta(seconds=150 + sample * 30), settings)
+        for sample in range(3):
+            _service_sample(db, "gitea", {"status": "missing"}, now + timedelta(seconds=210 + sample * 30), settings)
+        alert = db.query(Notification).filter(Notification.source_id == "gitea", Notification.event_type == "service_failure").one()
+        for sample in range(2):
+            _service_sample(db, "gitea", {"status": "running"}, now + timedelta(seconds=300 + sample * 30), settings)
+        assert alert.resolved_at is not None
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_metric_recovery_requires_a_fresh_shorter_confirmation_window(app):
+    db = app.state.testing_session_local()
+    settings = get_settings()
+    now = datetime.now(UTC)
+    def sample(offset, value):
+        _metric_transition(db, key="metric:temperature", value=value, now=now + timedelta(seconds=offset),
+            duration=300, recovery_duration=120, trigger=lambda v: v > 75, recovery=lambda v: v <= 70,
+            warning_event="temperature_high", title="Temperature", metric_name="temperature",
+            recovery_title="Temperature recovered", path="/settings/system", settings=settings)
+    try:
+        for offset in range(0, 301, 30):
+            sample(offset, 78)
+        sample(330, 69)
+        sample(360, None)
+        sample(390, 69)
+        sample(420, 72)
+        for offset in (450, 480, 510, 540):
+            sample(offset, 69)
+        assert db.query(Notification).filter(Notification.event_type == "temperature_recovered").count() == 0
+        sample(570, 69)
+        assert db.query(Notification).filter(Notification.event_type == "temperature_recovered").count() == 1
+    finally:
+        db.rollback()
+        db.close()
+
+
+@pytest.mark.anyio
+async def test_failed_metric_collection_interrupts_confirmation_window(app, monkeypatch):
+    from app.services import notification_monitor as monitor
+
+    now = datetime.now(UTC)
+    settings = get_settings().model_copy(update={"notification_temperature_duration_seconds": 120})
+    monkeypatch.setattr(monitor, "_probe_devices", AsyncMock(return_value={}))
+    monkeypatch.setattr(monitor, "get_service_snapshot", lambda: [])
+    def metrics():
+        return SimpleNamespace(temperature_c=80.0, disk_percent=40.0, memory_percent=35.0)
+    monkeypatch.setattr(monitor, "get_pi_status", metrics)
+    await run_monitor_cycle(app.state.testing_session_local, settings, now)
+    monkeypatch.setattr(monitor, "get_pi_status", lambda: (_ for _ in ()).throw(RuntimeError("private failure")))
+    await run_monitor_cycle(app.state.testing_session_local, settings, now + timedelta(seconds=30))
+    monkeypatch.setattr(monitor, "get_pi_status", metrics)
+    for offset in (60, 90, 120, 150):
+        await run_monitor_cycle(app.state.testing_session_local, settings, now + timedelta(seconds=offset))
+    with app.state.testing_session_local() as db:
+        assert db.query(Notification).filter(Notification.event_type == "temperature_high").count() == 0
+    await run_monitor_cycle(app.state.testing_session_local, settings, now + timedelta(seconds=180))
+    with app.state.testing_session_local() as db:
+        assert db.query(Notification).filter(Notification.event_type == "temperature_high").count() == 1
+
+
+@pytest.mark.anyio
+async def test_control_agent_outage_warns_while_other_collectors_keep_working(app, monkeypatch):
+    from app.services import notification_monitor as monitor
+
+    now = datetime.now(UTC)
+    monkeypatch.setattr(monitor, "_probe_devices", AsyncMock(return_value={}))
+    monkeypatch.setattr(monitor, "get_service_snapshot", lambda: (_ for _ in ()).throw(RuntimeError("private failure")))
+    monkeypatch.setattr(monitor, "get_pi_status", lambda: SimpleNamespace(temperature_c=55.0, disk_percent=40.0, memory_percent=35.0))
+    for offset in (0, 30, 60, 90):
+        await run_monitor_cycle(app.state.testing_session_local, get_settings(), now + timedelta(seconds=offset))
+    with app.state.testing_session_local() as db:
+        warning = db.query(Notification).filter(Notification.event_type == "monitoring_unavailable").one()
+        assert "private failure" not in warning.message
+        assert db.query(Notification).filter(Notification.event_type == "service_failure").count() == 0
+    monkeypatch.setattr(monitor, "get_service_snapshot", lambda: [])
+    for offset in (120, 150):
+        await run_monitor_cycle(app.state.testing_session_local, get_settings(), now + timedelta(seconds=offset))
+    with app.state.testing_session_local() as db:
+        assert db.query(Notification).filter(Notification.event_type == "monitoring_recovered").count() == 1

@@ -1,6 +1,6 @@
 # PiHomeHub local operations runbook
 
-This is a local operator reference for running PiHomeHub, administering accounts, and troubleshooting the Docker deployment. It is intentionally excluded from Git.
+This is a local operator reference for running PiHomeHub, administering accounts, and troubleshooting the Docker deployment. For stable home-server deployment, backups, upgrades, restore, and host acceptance checks, use the maintained [production deployment guide](docs/production-deployment.md) and [README](README.md). This runbook is tracked in Git; keep host secrets out of it.
 
 ## Development versus production
 
@@ -35,25 +35,25 @@ Run all commands from the repository root.
 Validate the merged configuration:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml config -q
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml config -q
 ```
 
 Build the backend and control-agent images:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml build
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml build
 ```
 
 Apply database migrations:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend alembic upgrade head
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend alembic upgrade head
 ```
 
 Create the first administrator interactively:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend python -m app.cli create-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend python -m app.cli create-admin
 ```
 
 The command asks for a username and password. The password is not printed and must contain at least 12 characters. Do not store it in `.env` or Compose.
@@ -61,7 +61,7 @@ The command asks for a username and password. The password is not printed and mu
 Start the development stack in the foreground:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up
 ```
 
 Open:
@@ -77,31 +77,31 @@ Press `Ctrl+C` to stop a foreground stack.
 Start in the background:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
 ```
 
 Show status:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml ps
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml ps
 ```
 
 Follow backend and frontend logs:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml logs -f backend web
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml logs -f backend web
 ```
 
 Restart the backend after changing Python code. The frontend uses Vite HMR, but the backend development command does not currently use Uvicorn reload:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml restart backend
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml restart backend
 ```
 
 Stop containers while preserving the database volume:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml down
 ```
 
 Do not add `-v` unless you intentionally want to delete the database and all named-volume data.
@@ -139,31 +139,31 @@ Production rejects missing or weak secrets, HTTP public URLs, insecure origins, 
 Validate configuration:
 
 ```bash
-docker compose -f infra/docker-compose.yml config -q
+docker compose --env-file infra/.env -f infra/docker-compose.yml config -q
 ```
 
 Build production images:
 
 ```bash
-docker compose -f infra/docker-compose.yml build
+docker compose --env-file infra/.env -f infra/docker-compose.yml build
 ```
 
 Apply migrations before starting the application:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm backend alembic upgrade head
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend alembic upgrade head
 ```
 
 Create the first administrator:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm backend python -m app.cli create-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend python -m app.cli create-admin
 ```
 
 Start production in the background:
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
 ```
 
 Do not run the initial `up` before applying migrations and creating the administrator.
@@ -192,33 +192,33 @@ Do not use `tailscale funnel`.
 Show status:
 
 ```bash
-docker compose -f infra/docker-compose.yml ps
+docker compose --env-file infra/.env -f infra/docker-compose.yml ps
 ```
 
 Follow logs:
 
 ```bash
-docker compose -f infra/docker-compose.yml logs -f backend web caddy control-agent
+docker compose --env-file infra/.env -f infra/docker-compose.yml logs -f backend web caddy control-agent
 ```
 
 Restart only the backend:
 
 ```bash
-docker compose -f infra/docker-compose.yml restart backend
+docker compose --env-file infra/.env -f infra/docker-compose.yml restart backend
 ```
 
 Pull/rebuild and redeploy after source changes:
 
 ```bash
-docker compose -f infra/docker-compose.yml build
-docker compose -f infra/docker-compose.yml run --rm backend alembic upgrade head
-docker compose -f infra/docker-compose.yml up -d
+docker compose --env-file infra/.env -f infra/docker-compose.yml build
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend alembic upgrade head
+docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
 ```
 
 Stop while preserving data:
 
 ```bash
-docker compose -f infra/docker-compose.yml down
+docker compose --env-file infra/.env -f infra/docker-compose.yml down
 ```
 
 ## Administrator accounts
@@ -228,13 +228,13 @@ docker compose -f infra/docker-compose.yml down
 Development:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend python -m app.cli create-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend python -m app.cli create-admin
 ```
 
 Production:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm backend python -m app.cli create-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend python -m app.cli create-admin
 ```
 
 ### Create an additional administrator
@@ -244,13 +244,13 @@ The CLI refuses a second active administrator unless the operator explicitly ack
 Development:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend python -m app.cli create-admin --allow-additional-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend python -m app.cli create-admin --allow-additional-admin
 ```
 
 Production:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm backend python -m app.cli create-admin --allow-additional-admin
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend python -m app.cli create-admin --allow-additional-admin
 ```
 
 Use additional administrators sparingly. Each person should have a distinct account rather than sharing a password.
@@ -305,13 +305,13 @@ Check the current migration revision:
 Development:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm backend alembic current
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend alembic current
 ```
 
 Production:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm backend alembic current
+docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm --no-deps backend alembic current
 ```
 
 Upgrade to the latest revision using `alembic upgrade head` before starting newly built backend code.
@@ -325,13 +325,13 @@ Create the optional home-service containers before asking the control agent to m
 Development:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
 ```
 
 Production:
 
 ```bash
-docker compose -f infra/docker-compose.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
+docker compose --env-file infra/.env -f infra/docker-compose.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
 ```
 
 The restricted control agent can only inspect, start, stop, or restart fixed allowlisted services. It cannot create arbitrary containers, images, mounts, or commands.
@@ -350,13 +350,13 @@ cp infra/mosquitto/acl.example infra/mosquitto/generated/acl
 Start MQTT in development:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile mqtt up -d mosquitto
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile mqtt up -d mosquitto
 ```
 
 Start MQTT in production:
 
 ```bash
-docker compose -f infra/docker-compose.yml --profile mqtt up -d mosquitto
+docker compose --env-file infra/.env -f infra/docker-compose.yml --profile mqtt up -d mosquitto
 ```
 
 Use a separate MQTT identity and narrow ACL for every device.
@@ -376,13 +376,13 @@ Open the application through an origin listed exactly in `PIHOMEHUB_ALLOWED_ORIG
 Restart the development backend:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml restart backend
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml restart backend
 ```
 
 ### View recent logs
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml logs --tail 200 backend web control-agent
+docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml logs --tail 200 backend web control-agent
 ```
 
 ### Check health directly in development

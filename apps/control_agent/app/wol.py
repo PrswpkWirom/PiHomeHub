@@ -32,6 +32,11 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 _recent_nonces: deque[tuple[float, str]] = deque(maxlen=4096)
 
 
+@app.get("/health", include_in_schema=False)
+async def healthcheck():
+    return {"status": "ok"}
+
+
 def _authenticate(request: Request, body: bytes) -> None:
     timestamp = request.headers.get("x-control-timestamp", "")
     nonce = request.headers.get("x-control-nonce", "")

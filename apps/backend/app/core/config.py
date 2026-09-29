@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     notification_memory_high_percent: float = 90.0
     notification_memory_recovery_percent: float = 85.0
     notification_memory_duration_seconds: int = 300
+    notification_metric_recovery_seconds: int = Field(default=120, ge=30, le=3600)
     allowed_origins: str = "http://localhost:5173"
     public_base_url: str = "http://localhost:5173"
     session_idle_timeout_seconds: int = Field(default=43_200, ge=300)

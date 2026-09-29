@@ -1,0 +1,13 @@
+[Unit]
+Description=Verified PiHomeHub SQLite and configuration backup
+Requires=docker.service
+After=docker.service
+ConditionPathExists=/opt/PiHomeHub/infra/.env
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/PiHomeHub
+ExecStart=/opt/PiHomeHub/scripts/backup.sh /var/backups/pihomehub
+UMask=0077
+Nice=10
+TimeoutStartSec=5min

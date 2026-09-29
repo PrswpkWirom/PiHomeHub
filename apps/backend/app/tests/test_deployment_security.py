@@ -49,6 +49,18 @@ def test_production_frontend_is_static_and_backend_has_no_docker_cli():
     assert "header_up -X-CSRF-Token" in ingress
 
 
+def test_production_core_healthchecks_and_logs_are_bounded():
+    compose = yaml.safe_load((ROOT / "infra" / "docker-compose.yml").read_text())
+    for name, service in compose["services"].items():
+        assert service["logging"]["options"] == {"max-size": "10m", "max-file": "3"}, name
+    for name in ("backend", "control-agent", "wol-agent", "web", "caddy"):
+        service = compose["services"][name]
+        assert service["healthcheck"]["interval"] == "30s"
+        assert service["healthcheck"]["timeout"] == "5s"
+        assert service["init"] is True
+    assert compose["services"]["caddy"]["depends_on"]["backend"]["condition"] == "service_healthy"
+
+
 def test_service_worker_invalidates_old_caches_and_never_caches_api():
     worker = (ROOT / "apps" / "web" / "public" / "sw.js").read_text()
     assert 'CACHE_VERSION = "pihomehub-shell-v2"' in worker
@@ -133,3 +145,7 @@ def test_dev_compose_does_not_require_production_environment():
         "PIHOMEHUB_CONTROL_AGENT_SECRET"
     ]
     assert web_command == ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
+    backend_volumes = config["services"]["backend"]["volumes"]
+    data_volume = next(volume for volume in backend_volumes if volume["target"] == "/data")
+    assert data_volume["source"] == "backend-dev-data"
+    assert "5173" in str(config["services"]["web"]["healthcheck"]["test"])
