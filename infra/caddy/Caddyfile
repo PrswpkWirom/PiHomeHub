@@ -1,3 +1,10 @@
+{
+	servers {
+		trusted_proxies static {$PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS:127.0.0.1 ::1}
+		trusted_proxies_strict
+	}
+}
+
 :443 {
 	tls internal
 	encode zstd gzip
@@ -11,7 +18,9 @@
 	}
 
 	handle /api/* {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			header_up X-Forwarded-For {http.request.client_ip}
+		}
 	}
 
 	handle {

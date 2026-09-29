@@ -82,7 +82,9 @@ export function AppLayout() {
         </header>
 
         <main id="main-content" className="main-content">
-          <Outlet />
+          <div key={location.pathname} className="route-content">
+            <Outlet />
+          </div>
         </main>
       </div>
 

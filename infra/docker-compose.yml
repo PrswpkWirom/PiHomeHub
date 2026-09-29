@@ -70,6 +70,7 @@ services:
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     environment:
       PIHOMEHUB_HOST: ${PIHOMEHUB_HOST:-localhost}
+      PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS: ${PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS:-127.0.0.1 ::1}
     ports:
       - "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
     volumes:

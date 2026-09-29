@@ -3,9 +3,12 @@ from sqlalchemy.orm import Session
 
 from app.database.db import get_db
 from app.models.user import User
+from app.models.tailscale_device import TailscaleDevice
+from app.services.current_device_service import identify_current_device
 from app.services.audit_service import audited_operation
 from app.schemas.tailscale import (
     TailscaleConnectionResult,
+    CurrentTailscaleDevice,
     TailscaleDeviceSettingsUpdate,
     TailscaleDeviceRead,
     TailscaleSettingsWrite,
@@ -69,6 +72,15 @@ async def sync(
 @router.get("/devices", response_model=list[TailscaleDeviceRead])
 async def devices(db: Session = Depends(get_db)):
     return list_tailscale_devices(db)
+
+
+@router.get("/current-device", response_model=CurrentTailscaleDevice)
+def current_device(request: Request, local_access: bool = False, db: Session = Depends(get_db)):
+    return identify_current_device(
+        db.query(TailscaleDevice).filter(TailscaleDevice.sync_status == "active").all(),
+        request.state.source_ip,
+        local_access=local_access,
+    )
 
 
 @router.patch("/devices/{device_id}/wol", response_model=TailscaleDeviceRead, dependencies=[Depends(require_admin)])

@@ -13,7 +13,7 @@ PYTHONPATH=apps/backend .venv/bin/alembic -c apps/backend/alembic.ini upgrade he
 PYTHONPATH=apps/backend .venv/bin/python -m app.cli create-admin
 ```
 
-3. Run `uvicorn app.main:app --app-dir apps/backend --reload`.
+3. Run `uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers`.
 4. Run `npm ci --prefix apps/web` and `npm --prefix apps/web run dev`.
 
 The development cookie is deliberately non-Secure and uses a separate name. Never use the development override as production.

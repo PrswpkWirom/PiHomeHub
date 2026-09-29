@@ -50,6 +50,11 @@ export type TailscaleConnectionResult = {
   message: string;
 };
 
+export type CurrentTailscaleDevice = {
+  tailscale_id: string | null;
+  method: "tailscale_ip" | "lan_ip" | "local_host" | "unknown";
+};
+
 export type TailscaleDevice = {
   id: number;
   tailscale_id: string;

@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Edit3, LockKeyhole, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
+import { ChevronDown, Edit3, LockKeyhole, Monitor, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
@@ -7,7 +7,8 @@ import { Field, TextareaField } from "../components/Field";
 import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
-import type { DeviceSummary, DeviceWrite, TailscaleDevice, TailscaleDeviceSettingsWrite } from "../types/api";
+import type { CurrentTailscaleDevice, DeviceSummary, DeviceWrite, TailscaleDevice, TailscaleDeviceSettingsWrite } from "../types/api";
+import { CURRENT_DEVICE_STORAGE_KEY, readSelectedDevice, resolveCurrentDevice } from "../utils/currentDevice";
 
 const emptyManualDevice: DeviceWrite = {
   name: "",
@@ -131,6 +132,40 @@ function SettingsAccordion({
 export function DevicesPage() {
   const manual = useFetch<DeviceSummary[]>("/api/devices");
   const tailscale = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
+  const localAccess = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+  const currentIdentity = useFetch<CurrentTailscaleDevice>(
+    `/api/tailscale/current-device?local_access=${localAccess}`,
+    { enabled: Boolean(tailscale.data?.length), refetchIntervalMs: TAILSCALE_REFRESH_MS }
+  );
+  const [selectedDeviceId, setSelectedDeviceId] = useState(readSelectedDevice);
+  const currentDevice = resolveCurrentDevice(
+    tailscale.data ?? [], currentIdentity.error ? null : currentIdentity.data, selectedDeviceId
+  );
+  // Move the current device first in a linear pass, preserving every other row's order.
+  const visibleTailscaleDevices = currentDevice.device
+    ? [currentDevice.device, ...(tailscale.data ?? []).filter((device) => device.id !== currentDevice.device?.id)]
+    : tailscale.data ?? [];
+  const selectCurrentDevice = (id: string) => {
+    setSelectedDeviceId(id);
+    try {
+      if (id) window.localStorage.setItem(CURRENT_DEVICE_STORAGE_KEY, id);
+      else window.localStorage.removeItem(CURRENT_DEVICE_STORAGE_KEY);
+    } catch { /* The selection still works for this visit if storage is unavailable. */ }
+  };
+  const refetchCurrentIdentity = currentIdentity.refetch;
+  useEffect(() => {
+    const refreshIdentity = () => {
+      if (document.visibilityState === "visible" && tailscale.data?.length) {
+        void refetchCurrentIdentity().catch(() => undefined);
+      }
+    };
+    window.addEventListener("online", refreshIdentity);
+    document.addEventListener("visibilitychange", refreshIdentity);
+    return () => {
+      window.removeEventListener("online", refreshIdentity);
+      document.removeEventListener("visibilitychange", refreshIdentity);
+    };
+  }, [refetchCurrentIdentity, tailscale.data?.length]);
   const [manualForm, setManualForm] = useState<DeviceWrite>(emptyManualDevice);
   const [editingManualId, setEditingManualId] = useState<number | null>(null);
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
@@ -162,6 +197,7 @@ export function DevicesPage() {
       tailscaleSyncPromise = request;
       const synced = await request;
       setTailscaleData(synced);
+      void refetchCurrentIdentity().catch(() => undefined);
       const timestamp = new Date().toLocaleTimeString();
       lastTailscaleSyncCompletedAt = Date.now();
       lastTailscaleSyncLabel = timestamp;
@@ -177,7 +213,7 @@ export function DevicesPage() {
       tailscaleSyncPromise = null;
       setSyncing(false);
     }
-  }, [setTailscaleData]);
+  }, [setTailscaleData, refetchCurrentIdentity]);
 
   useEffect(() => {
     if (!tailscale.loading && tailscale.data !== null && !hasRecentTailscaleSync(tailscale.data)) {
@@ -344,16 +380,43 @@ export function DevicesPage() {
           feedback={tailscale.error ? { kind: "error", persistent: true, text: tailscale.error } : null}
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void tailscale.refetch()}>Retry Tailscale devices</button>}
         />
+        {!currentDevice.automatic && !currentIdentity.loading && tailscale.data?.some((device) => device.sync_status === "active") ? (
+          <div className="mb-5 flex flex-wrap items-center gap-3">
+            <label className="text-sm text-muted" htmlFor="current-tailscale-device">
+              {currentDevice.device ? "This browser's device" : "Identify this device"}
+            </label>
+            <select
+              id="current-tailscale-device"
+              className="input-field max-w-xs"
+              value={currentDevice.device?.tailscale_id ?? ""}
+              onChange={(event) => selectCurrentDevice(event.target.value)}
+            >
+              <option value="">Choose your device…</option>
+              {tailscale.data.filter((device) => device.sync_status === "active").map((device) => (
+                <option key={device.tailscale_id} value={device.tailscale_id}>{device.display_name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted">Remembered in this browser when automatic detection is unavailable.</p>
+          </div>
+        ) : null}
         <div className="space-y-4">
-          {tailscale.data?.map((device) => (
-            <div key={device.id} className="raised-card grid gap-4 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center">
+          {visibleTailscaleDevices.map((device) => (
+            <div key={device.id} className={`raised-card grid gap-4 xl:grid-cols-[1.1fr_1fr_0.8fr] xl:items-center${device.id === currentDevice.device?.id ? " outline outline-1 outline-accent/50" : ""}`}>
               <div className="min-w-0">
-                <p className="font-semibold text-mist">{device.display_name}</p>
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <p className="font-semibold text-mist">{device.display_name}</p>
+                  {device.id === currentDevice.device?.id ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent"
+                      title={currentDevice.automatic ? "Detected from this connection" : "Selected for this browser"}>
+                      <Monitor size={13} aria-hidden="true" /> This device
+                    </span>
+                  ) : null}
+                </div>
                 <p className="mt-1 text-sm text-muted">{device.hostname ?? "No hostname"} / {device.os ?? "Unknown OS"}</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={device.online ? "online" : "offline"} />
-                <StatusPill status={device.sync_status} />
+                {device.sync_status !== "active" ? <StatusPill status={device.sync_status} /> : null}
                 <span className="text-sm text-muted">Last seen: {device.last_seen ?? "Unknown"}</span>
               </div>
               <div className="flex flex-wrap gap-2 xl:justify-end">

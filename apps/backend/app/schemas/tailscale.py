@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,11 @@ class TailscaleSettingsWrite(BaseModel):
 class TailscaleConnectionResult(BaseModel):
     ok: bool
     message: str
+
+
+class CurrentTailscaleDevice(BaseModel):
+    tailscale_id: str | None
+    method: Literal["tailscale_ip", "lan_ip", "local_host", "unknown"]
 
 
 class TailscaleDeviceRead(BaseModel):

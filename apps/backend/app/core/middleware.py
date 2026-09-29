@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv6Address, ip_address, ip_network
 from urllib.parse import urlparse
 
 from fastapi import Request, status
@@ -21,9 +21,22 @@ def observed_source_ip(request: Request) -> str:
     peer_ip = request.client.host if request.client else "unknown"
     settings = get_settings()
     if _is_trusted_proxy(peer_ip, settings.trusted_proxy_ip_list):
-        forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+        forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
-            return forwarded[:64]
+            hops = [value.strip() for value in forwarded.split(",")]
+            if len(forwarded) > 2048 or len(hops) > 16:
+                return "unknown"
+            # Walk from the actual peer; stop at the first untrusted hop.
+            # A client cannot prepend a forged address to impersonate a device.
+            current = peer_ip
+            for hop in reversed(hops):
+                if not _is_trusted_proxy(current, settings.trusted_proxy_ip_list):
+                    break
+                try:
+                    current = str(ip_address(hop))
+                except ValueError:
+                    return "unknown"
+            return current
     return peer_ip[:64]
 
 
@@ -31,6 +44,8 @@ def _is_trusted_proxy(peer_ip: str, trusted_proxies: list[str]) -> bool:
     """Match configured proxy addresses exactly or as explicit CIDR networks."""
     try:
         peer = ip_address(peer_ip)
+        if isinstance(peer, IPv6Address) and peer.ipv4_mapped:
+            peer = peer.ipv4_mapped
     except ValueError:
         return False
     for configured in trusted_proxies:
@@ -60,6 +75,11 @@ class RequestSecurityMiddleware(BaseHTTPMiddleware):
         settings = get_settings()
         request.state.request_id = request.headers.get("x-request-id", secrets.token_hex(12))[:64]
         request.state.source_ip = observed_source_ip(request)
+        # Preserve HTTPS URL generation without letting Uvicorn rewrite the peer.
+        if request.client and _is_trusted_proxy(request.client.host, settings.trusted_proxy_ip_list):
+            forwarded_scheme = request.headers.get("x-forwarded-proto")
+            if forwarded_scheme in {"http", "https"}:
+                request.scope["scheme"] = forwarded_scheme
 
         if request.method in UNSAFE_METHODS:
             if not origin_is_allowed(request):

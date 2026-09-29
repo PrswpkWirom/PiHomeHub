@@ -35,6 +35,7 @@ host = sys.argv[1]
 port = int(sys.argv[2])
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind((host, port))
     except OSError:
@@ -88,6 +89,7 @@ echo "Starting PiHomeHub backend on http://${HOST}:${BACKEND_PORT}"
   --app-dir apps/backend \
   --host "$HOST" \
   --port "$BACKEND_PORT" \
+  --no-proxy-headers \
   --reload &
 BACKEND_PID=$!
 

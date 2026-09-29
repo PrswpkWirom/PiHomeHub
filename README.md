@@ -84,7 +84,7 @@ Run these commands from the repository root.
 4. In another terminal, run the API:
 
    ```bash
-   uvicorn app.main:app --app-dir apps/backend --reload
+   uvicorn app.main:app --app-dir apps/backend --reload --no-proxy-headers
    ```
 
    Open <http://localhost:5173>.

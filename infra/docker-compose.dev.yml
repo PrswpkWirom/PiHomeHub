@@ -6,6 +6,7 @@ services:
       PIHOMEHUB_CONTROL_AGENT_SECRET: development-control-agent-secret
       PIHOMEHUB_PUBLIC_BASE_URL: http://localhost:5173
       PIHOMEHUB_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.3
     ports:
       - "8000:8000"
     volumes:
@@ -23,6 +24,9 @@ services:
     volumes:
       - ../apps/web:/app
       - web-node-modules:/app/node_modules
+    networks:
+      edge:
+        ipv4_address: 172.30.0.3
 
   control-agent:
     environment:

@@ -13,7 +13,13 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: backendTarget,
-        changeOrigin: true
+        changeOrigin: true,
+        configure(proxy) {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            // Replace client-supplied forwarding headers with the socket peer.
+            proxyReq.setHeader("X-Forwarded-For", req.socket.remoteAddress ?? "unknown");
+          });
+        }
       }
     }
   }
