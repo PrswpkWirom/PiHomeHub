@@ -9,7 +9,8 @@ const sections = [
   { path: "access", label: "Access" },
   { path: "users", label: "Users", admin: true },
   { path: "security", label: "Security", admin: true },
-  { path: "system", label: "System" }
+  { path: "system", label: "System" },
+  { path: "notifications", label: "Notifications" }
 ] as const;
 
 export function SettingsPage() {

@@ -1,4 +1,6 @@
 from contextlib import asynccontextmanager
+import asyncio
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -9,12 +11,34 @@ from app.api import router
 from app.core.config import get_settings
 from app.core.middleware import RequestSecurityMiddleware
 from app.database.bootstrap import bootstrap_database
+from app.database.db import SessionLocal
+from app.services.notification_monitor import claim_monitor_lock, monitor_loop
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     bootstrap_database()
-    yield
+    settings = get_settings()
+    lock = claim_monitor_lock(settings.database_url)
+    monitor_task = None
+    if lock is None:
+        logger.warning("Notification monitor is already active in another backend worker")
+    else:
+        session_factory = getattr(application.state, "session_factory", SessionLocal)
+        monitor_task = asyncio.create_task(monitor_loop(session_factory), name="pihomehub-notification-monitor")
+    try:
+        yield
+    finally:
+        if monitor_task:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+        if lock:
+            lock.close()
 
 
 def create_app(*, include_lifespan: bool = True) -> FastAPI:

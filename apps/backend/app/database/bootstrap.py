@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.database.db import Base, SessionLocal, engine
 from app.models.device import Device
+from app.models.notification import NotificationPreference
 from app.models.service_link import ServiceLink
 from app.models.tailscale_device import TailscaleDevice
 from app.models.task import Task
@@ -36,6 +37,10 @@ def bootstrap_database() -> None:
 
 
 def seed_defaults(db: Session) -> None:
+    existing_preferences = {item.user_id for item in db.query(NotificationPreference.user_id).all()}
+    for user in db.query(User).filter(User.is_active.is_(True)).all():
+        if user.id not in existing_preferences:
+            db.add(NotificationPreference(user_id=user.id))
     existing_slugs = {row.slug for row in db.query(ServiceLink).all()}
     for item in settings.service_links_seed:
         slug = item.get("slug")

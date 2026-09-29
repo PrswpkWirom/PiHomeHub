@@ -7,12 +7,14 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { DevicesPage } from "./pages/DevicesPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { ServicesPage } from "./pages/ServicesPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SettingsAdminGuard } from "./pages/SettingsPage";
 import {
   AccessSettingsPage,
   AccountSettingsPage,
   GeneralSettingsPage,
+  NotificationSettingsPage,
   SecuritySettingsPage,
   SystemSettingsPage,
   UsersSettingsPage
@@ -35,6 +37,7 @@ export default function App() {
         <Route path="devices" element={<DevicesPage />} />
         <Route path="services" element={<ServicesPage />} />
         <Route path="planner" element={<PlannerPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />}>
           <Route index element={<Navigate to="account" replace />} />
           <Route path="general" element={<GeneralSettingsPage />} />
@@ -43,6 +46,7 @@ export default function App() {
           <Route path="users" element={<SettingsAdminGuard><UsersSettingsPage /></SettingsAdminGuard>} />
           <Route path="security" element={<SettingsAdminGuard><SecuritySettingsPage /></SettingsAdminGuard>} />
           <Route path="system" element={<SystemSettingsPage />} />
+          <Route path="notifications" element={<NotificationSettingsPage />} />
           <Route path="*" element={<Navigate to="/settings/account" replace />} />
         </Route>
       </Route>

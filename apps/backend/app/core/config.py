@@ -20,6 +20,23 @@ class Settings(BaseSettings):
     compose_project_directory: str | None = None
     compose_env_file: str | None = None
     host_proc_net_path: str = "/proc/net"
+    host_meminfo_path: str = "/proc/meminfo"
+    host_thermal_path: str = "/sys/class/thermal/thermal_zone0/temp"
+    host_root_probe_path: str = "/"
+    notification_monitor_interval_seconds: int = Field(default=30, ge=10, le=300)
+    notification_offline_failures: int = Field(default=3, ge=2, le=10)
+    notification_recovery_successes: int = Field(default=2, ge=1, le=10)
+    notification_temperature_high_c: float = 75.0
+    notification_temperature_recovery_c: float = 70.0
+    notification_temperature_duration_seconds: int = 300
+    notification_disk_warning_percent: float = 85.0
+    notification_disk_critical_percent: float = 95.0
+    notification_disk_degraded_percent: float = 90.0
+    notification_disk_recovery_percent: float = 80.0
+    notification_disk_duration_seconds: int = 120
+    notification_memory_high_percent: float = 90.0
+    notification_memory_recovery_percent: float = 85.0
+    notification_memory_duration_seconds: int = 300
     allowed_origins: str = "http://localhost:5173"
     public_base_url: str = "http://localhost:5173"
     session_idle_timeout_seconds: int = Field(default=43_200, ge=300)

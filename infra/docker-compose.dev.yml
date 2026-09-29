@@ -7,9 +7,12 @@ services:
       PIHOMEHUB_PUBLIC_BASE_URL: http://localhost:5173
       PIHOMEHUB_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.3
+      PIHOMEHUB_HOST_MEMINFO_PATH: /proc/meminfo
+      PIHOMEHUB_HOST_THERMAL_PATH: /sys/class/thermal/thermal_zone0/temp
+      PIHOMEHUB_HOST_ROOT_PROBE_PATH: /host/rootfs-metrics
     ports:
       - "8000:8000"
-    volumes:
+    volumes: !override
       - ../apps/backend:/app
 
   web:

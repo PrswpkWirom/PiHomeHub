@@ -7,6 +7,7 @@ class ServiceStatusRead(BaseModel):
     name: str
     slug: str
     status: str
+    health_status: str | None = None
     detail: str
 
 

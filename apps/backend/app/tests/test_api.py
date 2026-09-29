@@ -552,6 +552,29 @@ async def test_service_action_returns_safe_docker_failure(app):
 
 
 @pytest.mark.anyio
+async def test_service_action_agent_rejection_is_notified_and_pending_action_cleared(app):
+    from app.models.notification import MonitorState, Notification
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
+        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+        assert login_response.status_code == 200
+        with patch("app.services.docker_service.request_service_action", return_value={"ok": False}):
+            response = await client.post("/api/services/adguard-home/actions/restart")
+
+    assert response.status_code == 502
+    db = app.state.testing_session_local()
+    try:
+        state = db.get(MonitorState, "service:adguard-home")
+        assert state is not None
+        assert "pending_action" not in state.value_json
+        failure = db.query(Notification).filter(Notification.event_type == "service_failure").one()
+        assert failure.source_id == "adguard-home"
+        assert "restart" in failure.message
+    finally:
+        db.close()
+
+
+@pytest.mark.anyio
 async def test_service_action_returns_meaningful_docker_cli_error(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/services", tags=["services"], dependencies=[Depends(
 
 
 @router.get("/status", response_model=list[ServiceStatusRead])
-async def services_status(db: Session = Depends(get_db)):
+def services_status(db: Session = Depends(get_db)):
     return get_service_statuses(db)
 
 
@@ -65,7 +65,7 @@ async def apply_service_ports(
 
 
 @router.post("/{slug}/actions/{action}", response_model=ServiceActionResult)
-async def service_action(
+def service_action(
     slug: str,
     action: str,
     request: Request,

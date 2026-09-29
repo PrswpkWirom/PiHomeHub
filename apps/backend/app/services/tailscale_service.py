@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decrypt_secret, encrypt_secret
 from app.models.tailscale_device import TailscaleDevice
+from app.models.notification import MonitorState
 from app.models.user import AppSetting
 from app.schemas.tailscale import (
     TailscaleConnectionResult,
@@ -21,6 +22,7 @@ from app.schemas.tailscale import (
     TailscaleWolUpdate,
 )
 from app.services.control_agent_client import ControlAgentError
+from app.services.notification_service import create_notification, resolve_incident
 from app.services.wol_service import _send_magic_packet
 
 TAILSCALE_API_BASE = "https://api.tailscale.com/api/v2"
@@ -47,6 +49,56 @@ def _set_setting(db: Session, key: str, value: str) -> None:
 
 def _delete_setting(db: Session, key: str) -> None:
     db.query(AppSetting).filter(AppSetting.key == key).delete()
+
+
+def _sync_monitor_state(db: Session) -> tuple[MonitorState, dict[str, Any]]:
+    row = db.get(MonitorState, "tailscale:sync")
+    try:
+        state = json.loads(row.value_json) if row else {}
+    except (ValueError, TypeError):
+        state = {}
+    if row is None:
+        row = MonitorState(key="tailscale:sync", value_json="{}", updated_at=datetime.now(UTC))
+        db.add(row)
+    return row, state
+
+
+def _record_sync_failure(db: Session, safe_error: str) -> None:
+    row, state = _sync_monitor_state(db)
+    last_success = _get_setting(db, LAST_SYNC_KEY)
+    if not state.get("active_event"):
+        state["incident"] = int(state.get("incident", 0)) + 1
+        event_key = f"tailscale-sync-failed:{state['incident']}"
+        state["active_event"] = event_key
+        suffix = f" Last successful sync: {last_success}." if last_success else " No successful sync has been recorded."
+        create_notification(
+            db, event_key=event_key, event_type="tailscale_sync_failed", category="tailscale",
+            severity="warning", title="Tailscale synchronization failed",
+            message=safe_error + suffix, source_type="integration", source_id="tailscale",
+            target_path="/settings/access", metadata={"last_success_at": last_success},
+        )
+    row.value_json = json.dumps(state, sort_keys=True)
+    row.updated_at = datetime.now(UTC)
+    _set_setting(db, LAST_ERROR_KEY, safe_error)
+    db.commit()
+
+
+def _record_sync_success(db: Session) -> None:
+    row, state = _sync_monitor_state(db)
+    now = datetime.now(UTC)
+    _set_setting(db, LAST_SYNC_KEY, now.isoformat())
+    _delete_setting(db, LAST_ERROR_KEY)
+    if active := state.pop("active_event", None):
+        resolve_incident(db, active, now)
+        state["recovery"] = int(state.get("recovery", 0)) + 1
+        create_notification(
+            db, event_key=f"tailscale-sync-recovered:{state['recovery']}",
+            event_type="tailscale_sync_recovered", category="tailscale", severity="success",
+            title="Tailscale synchronization recovered", message="Tailscale devices synchronized successfully again.",
+            source_type="integration", source_id="tailscale", target_path="/settings/access", created_at=now,
+        )
+    row.value_json = json.dumps(state, sort_keys=True)
+    row.updated_at = now
 
 
 def _get_token(db: Session) -> str | None:
@@ -186,12 +238,10 @@ async def sync_tailscale_devices(db: Session) -> list[TailscaleDeviceRead]:
     try:
         devices = await _fetch_devices(token, tailnet)
     except HTTPException as exc:
-        _set_setting(db, LAST_ERROR_KEY, str(exc.detail))
-        db.commit()
+        _record_sync_failure(db, "Tailscale could not synchronize devices. Check the saved credentials and tailnet configuration.")
         raise
     except Exception as exc:
-        _set_setting(db, LAST_ERROR_KEY, str(exc))
-        db.commit()
+        _record_sync_failure(db, "Tailscale could not reach its API. Try synchronization again later.")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Unable to reach Tailscale API") from exc
 
     now = datetime.now(UTC)
@@ -224,8 +274,7 @@ async def sync_tailscale_devices(db: Session) -> list[TailscaleDeviceRead]:
         TailscaleDevice.sync_status == "active",
     ).update({"sync_status": "missing_from_tailnet"}, synchronize_session=False)
 
-    _set_setting(db, LAST_SYNC_KEY, now.isoformat())
-    _delete_setting(db, LAST_ERROR_KEY)
+    _record_sync_success(db)
     db.commit()
     return list_tailscale_devices(db)
 

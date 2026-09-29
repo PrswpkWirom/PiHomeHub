@@ -138,7 +138,38 @@ export type ServiceStatus = {
   name: string;
   slug: string;
   status: string;
+  health_status?: "healthy" | "unhealthy" | "starting" | null;
   detail: string;
+};
+
+export type NotificationSeverity = "info" | "success" | "warning" | "critical";
+export type NotificationCategory = "device" | "service" | "system" | "security" | "tailscale" | "planner";
+export type HubNotification = {
+  id: number;
+  event_type: string;
+  category: NotificationCategory;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  source_type: string | null;
+  source_id: string | null;
+  target_path: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  read_at: string | null;
+};
+export type NotificationPageResponse = { items: HubNotification[]; next_before_id: number | null };
+export type NotificationUnreadCount = { count: number };
+export type NotificationPreferences = {
+  device_offline: boolean;
+  device_recovered: boolean;
+  service_failure: boolean;
+  service_recovered: boolean;
+  temperature: boolean;
+  disk: boolean;
+  memory: boolean;
+  monitoring: boolean;
+  tailscale_sync: boolean;
 };
 
 export type ServiceCapability = {

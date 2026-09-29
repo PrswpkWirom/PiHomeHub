@@ -48,7 +48,7 @@ export function DashboardPage() {
   const activeTailscale = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
   const activeDevices = activeManual.length + activeTailscale.length;
   const totalDevices = (devices.data?.length ?? 0) + (tailscaleDevices.data?.length ?? 0);
-  const healthyServices = services.data?.filter((service) => ["running", "online", "active"].includes(service.status.toLowerCase())).length ?? 0;
+  const healthyServices = services.data?.filter((service) => ["running", "online", "active"].includes(service.status.toLowerCase()) && service.health_status !== "unhealthy").length ?? 0;
   const openTasks = tasks.data?.filter((task) => !task.is_complete) ?? [];
   const allOperational = Boolean(services.data?.length) && healthyServices === services.data?.length;
   const greeting = useMemo(() => {
@@ -116,8 +116,8 @@ export function DashboardPage() {
           <div className="section-heading"><div><p className="eyebrow"><span /> Raspberry Pi</p><h2 id="live-health-title">Live system health</h2></div><span className="refresh-label">{metrics.refreshing ? <span className="refresh-dot" /> : null}{metrics.refreshing ? "Refreshing" : `Updated ${new Date(metrics.updatedAt ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}</span></div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <Metric label="CPU load" value={`${metrics.data.cpu_percent.toFixed(0)}%`} percent={metrics.data.cpu_percent} icon={Cpu} tone="cyan" />
-            <Metric label="Memory" value={`${metrics.data.memory_percent.toFixed(0)}%`} percent={metrics.data.memory_percent} icon={MemoryStick} tone="violet" />
-            <Metric label="Storage" value={`${metrics.data.disk_percent.toFixed(0)}%`} percent={metrics.data.disk_percent} icon={HardDrive} tone="mint" />
+            <Metric label="Memory" value={metrics.data.memory_percent == null ? "N/A" : `${metrics.data.memory_percent.toFixed(0)}%`} percent={metrics.data.memory_percent} icon={MemoryStick} tone="violet" />
+            <Metric label="Storage" value={metrics.data.disk_percent == null ? "N/A" : `${metrics.data.disk_percent.toFixed(0)}%`} percent={metrics.data.disk_percent} icon={HardDrive} tone="mint" />
             <Metric label="Temperature" value={metrics.data.temperature_c ? `${metrics.data.temperature_c.toFixed(1)}°C` : "N/A"} percent={metrics.data.temperature_c ? (metrics.data.temperature_c / 85) * 100 : null} icon={Thermometer} tone="amber" />
           </div>
         </section>

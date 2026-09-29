@@ -11,7 +11,7 @@ import { StatusPill } from "../components/StatusPill";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../contexts/AuthContext";
 import { invalidateCache, invalidateCachePrefix, setCachedData, useFetch } from "../hooks/useFetch";
-import type { AdminUser, AuditEventPage, AuditEventSummary, PiStatus, SessionRead, TailscaleConnectionResult, TailscaleDevice, TailscaleStatus } from "../types/api";
+import type { AdminUser, AuditEventPage, AuditEventSummary, NotificationPreferences, PiStatus, SessionRead, TailscaleConnectionResult, TailscaleDevice, TailscaleStatus } from "../types/api";
 
 export function GeneralSettingsPage() {
   return <Panel title="Appearance" description="Choose how PiHomeHub looks on this device."><ThemeToggle /></Panel>;
@@ -424,4 +424,40 @@ export function UsersSettingsPage() {
     {!users.loading && !users.error && users.data?.length === 0 ? <p className="empty-state">No accounts found.</p> : null}
     {pending ? <ConfirmDialog title={`${pending.label}?`} description={`${pending.user.username} will become ${pending.field === "is_admin" ? (pending.next ? "an Administrator" : "a Viewer") : (pending.next ? "able to sign in" : "unable to sign in")}. This change revokes their active sessions.`} confirmLabel={pending.label} onCancel={() => setPending(null)} onConfirm={() => { setPending(null); void saveChange(); }} /> : null}
   </Panel>;
+}
+
+const notificationPreferenceGroups: Array<{ title: string; items: Array<{ key: keyof NotificationPreferences; label: string }> }> = [
+  { title: "Devices", items: [{ key: "device_offline", label: "Device went offline" }, { key: "device_recovered", label: "Device came online" }] },
+  { title: "Services", items: [{ key: "service_failure", label: "Service stopped or became unhealthy" }, { key: "service_recovered", label: "Service recovered or action completed" }] },
+  { title: "System", items: [{ key: "temperature", label: "High temperature" }, { key: "disk", label: "Low disk space" }, { key: "memory", label: "High memory use" }, { key: "monitoring", label: "Monitoring unavailable or recovered" }] },
+  { title: "Tailscale", items: [{ key: "tailscale_sync", label: "Synchronization failures and recovery" }] }
+];
+
+export function NotificationSettingsPage() {
+  const stored = useFetch<NotificationPreferences>("/api/notifications/preferences");
+  const [draft, setDraft] = useState<NotificationPreferences | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  useEffect(() => { if (stored.data) setDraft(stored.data); }, [stored.data]);
+
+  const save = async () => {
+    if (!draft || busy) return;
+    setBusy(true); setFeedback({ kind: "progress", text: "Saving notification preferences…" });
+    try {
+      const saved = await api.patch<NotificationPreferences>("/api/notifications/preferences", draft);
+      setDraft(saved); setCachedData("/api/notifications/preferences", saved);
+      setFeedback({ kind: "success", text: "Notification preferences saved." });
+    } catch (error) { setFeedback(errorFeedback(error, "Preferences could not be saved.")); }
+    finally { setBusy(false); }
+  };
+
+  return <div className="grid gap-5">
+    <Panel title="Notification delivery" description="Choose which future infrastructure events appear in your inbox. Monitoring continues for the whole hub.">
+      {stored.loading && !draft ? <div className="skeleton h-40" /> : null}
+      <FeedbackMessage feedback={stored.error ? { kind: "error", persistent: true, text: stored.error } : null} action={<button className="btn-secondary" type="button" onClick={() => void stored.refetch()}>Retry</button>} />
+      <FeedbackMessage className="mb-4" feedback={feedback} onDismiss={() => setFeedback(null)} />
+      <div className="grid gap-4 md:grid-cols-2">{notificationPreferenceGroups.map((group) => <section key={group.title} className="raised-card"><h2 className="font-semibold text-mist">{group.title}</h2><div className="mt-3 grid gap-3">{group.items.map(({ key, label }) => <label key={key} className="flex cursor-pointer items-center gap-3 text-sm text-muted"><input type="checkbox" className="h-4 w-4 accent-[rgb(var(--color-accent))]" checked={draft?.[key] ?? true} disabled={!draft || busy} onChange={(event) => setDraft((current) => current ? { ...current, [key]: event.target.checked } : current)} /><span>{label}</span></label>)}</div></section>)}</div>
+      <div className="mt-5 flex justify-end"><button className="btn-primary" type="button" disabled={!draft || busy || stored.loading} onClick={() => void save()}>{busy ? "Saving…" : "Save preferences"}</button></div>
+    </Panel>
+  </div>;
 }

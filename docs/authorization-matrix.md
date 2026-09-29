@@ -8,6 +8,8 @@
 | `POST /api/auth/logout`, `POST /api/auth/reauthenticate`, `DELETE /api/auth/sessions/{id}` | Authenticated write + CSRF |
 | Auth logout-all, change-password | Authenticated write + recent authentication + CSRF |
 | System, service status/capabilities/links/ports, device/Tailscale reads, task reads | Authenticated read |
+| `GET /api/notifications`, `/unread-count`, `/preferences` | Authenticated read; inbox is scoped to the signed-in user |
+| `PATCH /api/notifications/{id}/read`, `POST /read-all`, `PATCH /preferences` | Authenticated write + CSRF; read state and preferences are per user |
 | Task create/update/delete | Authenticated write + CSRF |
 | Device create/update/delete, WOL, Tailscale test/sync/device changes/wake | Admin + CSRF |
 | Tailscale credentials/settings | Recent admin + CSRF |

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api import admin, auth, devices, services, system, tailscale, tasks, wol
+from app.api import admin, auth, devices, notifications, services, system, tailscale, tasks, wol
 
 router = APIRouter(prefix="/api")
 router.include_router(auth.router)
@@ -11,3 +11,4 @@ router.include_router(devices.router)
 router.include_router(tailscale.router)
 router.include_router(wol.router)
 router.include_router(tasks.router)
+router.include_router(notifications.router)

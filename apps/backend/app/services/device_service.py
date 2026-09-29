@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.device import Device
 from app.models.user import AppSetting
+from app.models.notification import MonitorState
 from app.schemas.devices import DeviceCreate, DeviceSummary, DeviceUpdate
 
 DELETED_KNOWN_DEVICES_KEY = "deleted_known_device_names"
@@ -70,11 +71,24 @@ def get_devices(db: Session) -> list[DeviceSummary]:
             mac_address=device.mac_address,
             broadcast_address=device.broadcast_address,
             supports_wol=device.supports_wol,
-            status=_ping_host(device.ip_address or device.tailscale_name),
+            status=_monitored_device_status(db, device.id) or "unknown",
             description=device.description,
         )
         for device in db.query(Device).order_by(Device.name.asc()).all()
     ]
+
+
+def _monitored_device_status(db: Session, device_id: int) -> str | None:
+    import json
+
+    row = db.query(MonitorState).filter(MonitorState.key == f"device:{device_id}").one_or_none()
+    if row is None:
+        return None
+    try:
+        state = json.loads(row.value_json).get("stable")
+        return state if state in {"online", "offline"} else None
+    except (ValueError, AttributeError):
+        return None
 
 
 def create_device(db: Session, payload: DeviceCreate) -> Device:

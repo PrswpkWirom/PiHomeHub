@@ -98,6 +98,18 @@ def test_control_agent_reports_configured_bindings_for_stopped_container(control
     assert {(port["protocol"], port["host_port"]) for port in result["ports"]} == {("tcp", 53), ("udp", 53)}
 
 
+def test_control_agent_reports_health_status_without_exposing_health_output(control_agent):
+    payload = [{"State": {"Status": "running", "Health": {"Status": "unhealthy", "Log": [{"Output": "secret response"}]}}}]
+    with patch.object(control_agent.subprocess, "run") as docker:
+        docker.return_value.returncode = 0
+        docker.return_value.stdout = json.dumps(payload)
+        result = control_agent._inspect("vaultwarden")
+    assert result["status"] == "running"
+    assert result["health_status"] == "unhealthy"
+    assert "Log" not in json.dumps(result)
+    assert "secret response" not in json.dumps(result)
+
+
 @pytest.mark.anyio
 async def test_control_agent_timeout_is_sanitized(control_agent):
     path = "/v1/services/adguard-home/start"

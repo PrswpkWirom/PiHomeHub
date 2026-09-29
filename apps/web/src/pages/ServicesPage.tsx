@@ -592,6 +592,7 @@ export function ServicesPage() {
                       <p className="font-semibold text-mist">{service.name}</p>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-muted">{service.detail}</p>
+                    {service.status === "running" && service.health_status ? <p className={`mt-1 text-xs font-semibold ${service.health_status === "unhealthy" ? "text-amber-400" : service.health_status === "healthy" ? "text-emerald-400" : "text-muted"}`}>Health check: {service.health_status}</p> : null}
                   </div>
                   <StatusPill status={service.status} />
                 </div>

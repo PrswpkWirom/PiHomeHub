@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Bell, Home, ListChecks, LogOut, Monitor, Search, Server, Settings } from "lucide-react";
+import { Home, ListChecks, LogOut, Monitor, Search, Server, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { BrandMark } from "../components/BrandMark";
@@ -9,6 +9,7 @@ import { ThemeToggle } from "../components/ThemeToggle";
 import { usePermissions } from "../components/AdminOnly";
 import { FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { useAuth } from "../contexts/AuthContext";
+import { NotificationControl } from "../components/NotificationControl";
 
 const navItems: { to: string; label: string; shortLabel: string; icon: LucideIcon }[] = [
   { to: "/dashboard", label: "Overview", shortLabel: "Home", icon: Home },
@@ -25,7 +26,9 @@ export function AppLayout() {
   const [signingOut, setSigningOut] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const currentPage = navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? "Overview";
+  const currentPage = location.pathname.startsWith("/notifications")
+    ? "Notifications"
+    : navItems.find((item) => location.pathname.startsWith(item.to))?.label ?? "Overview";
 
   const signOut = async () => {
     if (signingOut) return;
@@ -90,7 +93,7 @@ export function AppLayout() {
             <button className="topbar-search" aria-label="Search (coming soon)" title="Search is coming soon">
               <Search size={16} /><span>Search hub</span><kbd>⌘ K</kbd>
             </button>
-            <button className="icon-button h-10 w-10" aria-label="Notifications" title="No new notifications"><Bell size={17} /></button>
+            <NotificationControl />
             <div className="lg:hidden"><ThemeToggle compact /></div>
           </div>
         </header>

@@ -6,6 +6,7 @@ import json
 import logging
 # The agent uses only fixed arrays and a static allowlist.
 import subprocess  # nosec B404
+import asyncio
 import time
 from collections import deque
 
@@ -102,14 +103,18 @@ def _inspect(slug: str) -> dict:
                 )
             except (KeyError, TypeError, ValueError):
                 continue
-    return {"slug": slug, "status": state_name, "detail": state_name.title(), "ports": ports}
+    health = state.get("Health")
+    health_status = health.get("Status") if isinstance(health, dict) else None
+    if health_status not in {"healthy", "unhealthy", "starting"}:
+        health_status = None
+    return {"slug": slug, "status": state_name, "health_status": health_status, "detail": state_name.title(), "ports": ports}
 
 
 @app.get("/v1/services")
 async def service_status(request: Request):
     await request.body()
     _authenticate(request, b"")
-    return {"services": [_inspect(slug) for slug in sorted(settings.allowlist)]}
+    return await asyncio.to_thread(lambda: {"services": [_inspect(slug) for slug in sorted(settings.allowlist)]})
 
 
 @app.post("/v1/services/{slug}/{action}")
@@ -120,7 +125,8 @@ async def service_action(slug: str, action: str, request: Request):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service or action is not allowed")
     try:
         # Action and slug are both static-allowlisted.
-        result = subprocess.run(  # nosec B603
+        result = await asyncio.to_thread(
+            subprocess.run,  # nosec B603
             ["/usr/bin/docker", action, slug], capture_output=True, text=True, check=False, timeout=120
         )
     except FileNotFoundError as exc:
