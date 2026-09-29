@@ -9,7 +9,7 @@ PiHomeHub is for a trusted LAN or Tailscale tailnet, never direct public exposur
 - Viewers can read dashboards and manage their own tasks/sessions. Device, Wake-on-LAN, Tailscale, service, user, and audit operations have explicit administrator dependencies. High-impact changes require authentication within the last 10 minutes.
 - Passwords use Argon2id. Legacy PBKDF2 hashes upgrade after a successful login. Login failures are rate-limited by source IP and normalized username.
 - The backend has no Docker socket or Docker CLI. It can request only allowlisted status/start/stop/restart operations from an HMAC-authenticated control agent on an internal Docker network.
-- Production publishes only Caddy HTTPS, bound to loopback by default. Backend, web, and control-agent ports are private. FastAPI docs and debug mode are disabled.
+- Production publishes only Caddy HTTPS, bound to loopback by default. Backend, web, and control-agent ports are private. The restricted Wake-on-LAN agent binds only to the private Docker bridge gateway. FastAPI docs and debug mode are disabled.
 - Caddy strips cookies, authorization, and CSRF headers before proxying static-file requests to the web container.
 - MQTT is opt-in, rejects anonymous clients, and requires a password file plus per-device ACLs.
 - Security events are stored in `audit_events`; secret-bearing fields are redacted.

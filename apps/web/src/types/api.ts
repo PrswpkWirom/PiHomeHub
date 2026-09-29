@@ -59,6 +59,7 @@ export type DeviceSummary = {
   ip_address: string | null;
   tailscale_name: string | null;
   mac_address: string | null;
+  broadcast_address: string | null;
   supports_wol: boolean;
   status: string;
   description: string | null;
@@ -70,6 +71,7 @@ export type DeviceWrite = {
   ip_address?: string | null;
   tailscale_name?: string | null;
   mac_address?: string | null;
+  broadcast_address?: string | null;
   supports_wol: boolean;
   description?: string | null;
 };

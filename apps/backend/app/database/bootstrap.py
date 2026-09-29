@@ -61,6 +61,7 @@ def seed_defaults(db: Session) -> None:
                     ip_address=item.get("ip_address"),
                     tailscale_name=item.get("tailscale_name"),
                     mac_address=item.get("mac_address"),
+                    broadcast_address=item.get("broadcast_address"),
                     supports_wol=bool(item.get("supports_wol", False)),
                     description=item.get("description"),
                 )

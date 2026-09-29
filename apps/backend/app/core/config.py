@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = Field(default=300, ge=10)
     control_agent_url: str = "http://control-agent:9000"
     control_agent_secret: str = "development-control-agent-secret"
+    wol_agent_url: str = ""
     trusted_proxy_ips: str = "127.0.0.1,::1"
     service_links_json: str = "[]"
     known_devices_json: str = "[]"

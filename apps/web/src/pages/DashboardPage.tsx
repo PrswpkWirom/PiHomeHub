@@ -134,7 +134,7 @@ export function DashboardPage() {
             {activeManual.slice(0, 3).map((device) => (
               <div className="device-row" key={`manual-${device.id ?? device.name}`}>
                 <div className="device-avatar"><Monitor size={20} /></div><div className="min-w-0 flex-1"><p>{device.name}</p><span>{device.description ?? device.device_type}</span></div><StatusPill status="online" />
-                {device.supports_wol && device.id ? <button className="round-action" disabled={!isAdmin || waking} aria-label={`Wake ${device.name}`} aria-describedby={!isAdmin ? "dashboard-wol-admin-required" : undefined} onClick={() => { if (isAdmin) void wake(device.id!, device.name); }}><Power size={16} /></button> : null}
+                {device.supports_wol && device.mac_address && device.id ? <button className="round-action" disabled={!isAdmin || waking} aria-label={`Wake ${device.name}`} aria-describedby={!isAdmin ? "dashboard-wol-admin-required" : undefined} onClick={() => { if (isAdmin) void wake(device.id!, device.name); }}><Power size={16} /></button> : null}
               </div>
             ))}
             {activeTailscale.slice(0, Math.max(0, 3 - activeManual.length)).map((device) => (
@@ -143,7 +143,7 @@ export function DashboardPage() {
                 {device.supports_wol && device.mac_address ? <button className="round-action" disabled={!isAdmin || waking} aria-label={`Wake ${device.display_name}`} aria-describedby={!isAdmin ? "dashboard-wol-admin-required" : undefined} onClick={() => { if (isAdmin) void wakeTailscale(device); }}><Power size={16} /></button> : null}
               </div>
             ))}
-            {!isAdmin && (activeManual.some((device) => device.supports_wol && device.id) || activeTailscale.some((device) => device.supports_wol && device.mac_address)) ? <p id="dashboard-wol-admin-required" className="text-xs text-muted">Administrator access required to send Wake-on-LAN.</p> : null}
+            {!isAdmin && (activeManual.some((device) => device.supports_wol && device.mac_address && device.id) || activeTailscale.some((device) => device.supports_wol && device.mac_address)) ? <p id="dashboard-wol-admin-required" className="text-xs text-muted">Administrator access required to send Wake-on-LAN.</p> : null}
             {!devices.loading && !tailscaleDevices.loading && activeDevices === 0 ? <p className="empty-state">No device is online right now. Check Tailscale sync or your LAN connection.</p> : null}
             <FeedbackMessage feedback={wolMessage} onDismiss={() => setWolMessage(null)} />
           </div>

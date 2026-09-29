@@ -20,6 +20,7 @@ from app.schemas.tailscale import (
     TailscaleStatus,
     TailscaleWolUpdate,
 )
+from app.services.control_agent_client import ControlAgentError
 from app.services.wol_service import _send_magic_packet
 
 TAILSCALE_API_BASE = "https://api.tailscale.com/api/v2"
@@ -278,4 +279,11 @@ def wake_tailscale_device(db: Session, device_id: int) -> None:
     if not device.supports_wol or not device.mac_address:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="WOL is not configured for this device")
 
-    _send_magic_packet(device.mac_address, device.broadcast_address or "255.255.255.255")
+    try:
+        _send_magic_packet(device.mac_address, device.broadcast_address or "255.255.255.255")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except (ControlAgentError, OSError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="Wake-on-LAN packet could not be sent"
+        ) from exc

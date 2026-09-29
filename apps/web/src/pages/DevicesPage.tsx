@@ -18,6 +18,7 @@ const emptyManualDevice: DeviceWrite = {
   ip_address: "",
   tailscale_name: "",
   mac_address: "",
+  broadcast_address: "",
   supports_wol: false,
   description: ""
 };
@@ -43,6 +44,7 @@ function cleanDevice(payload: DeviceWrite): DeviceWrite {
     ip_address: payload.ip_address || null,
     tailscale_name: payload.tailscale_name || null,
     mac_address: payload.mac_address || null,
+    broadcast_address: payload.broadcast_address || null,
     description: payload.description || null
   };
 }
@@ -281,6 +283,7 @@ export function DevicesPage() {
       ip_address: device.ip_address ?? "",
       tailscale_name: device.tailscale_name ?? "",
       mac_address: device.mac_address ?? "",
+      broadcast_address: device.broadcast_address ?? "",
       supports_wol: device.supports_wol,
       description: device.description ?? ""
     });
@@ -553,6 +556,7 @@ export function DevicesPage() {
             <Field label="Local IP" value={manualForm.ip_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, ip_address: event.target.value })} />
             <Field label="Tailscale name" value={manualForm.tailscale_name ?? ""} onChange={(event) => setManualForm({ ...manualForm, tailscale_name: event.target.value })} />
             <Field label="MAC address" value={manualForm.mac_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, mac_address: event.target.value })} />
+            <Field label="Broadcast address" value={manualForm.broadcast_address ?? ""} onChange={(event) => setManualForm({ ...manualForm, broadcast_address: event.target.value })} />
             <label className="check-row">
               <input className="check-input" type="checkbox" checked={manualForm.supports_wol} onChange={(event) => setManualForm({ ...manualForm, supports_wol: event.target.checked })} />
               Supports WOL

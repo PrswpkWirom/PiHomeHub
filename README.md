@@ -56,6 +56,10 @@ Browser
 
 Run these commands from the repository root.
 
+This mode runs Python and Vite directly on the host. Wake-on-LAN packets are
+therefore sent directly through the host network; Docker and the Wake-on-LAN
+agent are not used.
+
 1. Create the local configuration, Python environment, database, and frontend dependencies:
 
    ```bash
@@ -98,6 +102,15 @@ above and run:
 ./scripts/run-dev.sh
 ```
 
+`run-dev.sh` starts the servers but does not run database migrations. After
+pulling changes that include a new migration, run this once before restarting
+the script:
+
+```bash
+PYTHONPATH=apps/backend .venv/bin/alembic -c apps/backend/alembic.ini upgrade head
+./scripts/run-dev.sh
+```
+
 The default local administrator credentials for this checkout are username
 `admin` and password `1234567891011`. The create-admin CLI prompts securely;
 the password is stored as a hash in the local database. For role testing, add
@@ -107,8 +120,11 @@ Users section to demote it to Viewer. Account creation stays in the CLI.
 ## Docker development
 
 The development override enables source mounts, Vite HMR, and local API
-ports. Install Docker Engine and the Docker Compose v2 plugin first. From the
-repository root, create the bind-mounted local config, then build and
+ports. It uses the same application source as local development but runs it in
+containers and stores data in a separate Docker volume. Wake-on-LAN requests
+use the restricted host-networked WOL agent so broadcast packets can reach the
+physical LAN. Install Docker Engine and the Docker Compose v2 plugin first.
+From the repository root, create the bind-mounted local config, then build and
 initialize the persistent development database:
 
 ```bash
@@ -145,12 +161,40 @@ the local Python database, so create its admin with the command above. The
 development override credentials and secrets are for local use only. For a
 quick login, enter `admin` and `1234567891011` at the CLI prompts.
 
+After updating the code, rebuild the images and apply migrations before
+restarting the Docker development stack:
+
+```bash
+docker compose \
+  --env-file infra/.env \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.dev.yml \
+  build
+
+docker compose \
+  --env-file infra/.env \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.dev.yml \
+  run --rm backend alembic upgrade head
+
+docker compose \
+  --env-file infra/.env \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.dev.yml \
+  up
+```
+
+Use either local development or Docker development for a given database. They
+are two ways to run the same source revision, but their databases, processes,
+and startup commands are separate.
+
 ## Production deployment
 
 Production publishes only the Caddy HTTPS ingress, bound to loopback by
-default. The backend, frontend, and control agent are private containers; the
-frontend is served as a static build and the backend has no Docker socket
-mount.
+default. The backend, frontend, and control agent are private containers. The
+Wake-on-LAN agent listens only on the private Docker bridge gateway while using
+the host network for LAN broadcasts. The frontend is served as a static build
+and the backend has no Docker socket mount.
 
 1. Install Docker Engine with the Docker Compose v2 plugin and Tailscale on
    the Raspberry Pi. Keep host firewall access limited to the trusted LAN or
@@ -189,7 +233,7 @@ mount.
 
 5. Check service status and logs with `docker compose --env-file infra/.env -f
    infra/docker-compose.yml ps` and `docker compose --env-file infra/.env -f
-   infra/docker-compose.yml logs -f backend caddy web`. Back up the Docker
+   infra/docker-compose.yml logs -f backend wol-agent caddy web`. Back up the Docker
    volume `backend-data` and `infra/.env` before upgrades; see the production
    runbook for restore and secret rotation.
 

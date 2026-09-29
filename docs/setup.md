@@ -56,4 +56,4 @@ docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker
 
 ## Bootstrap data and Tailscale
 
-Quick links and known devices may be seeded from JSON environment values. In Settings, administrators can store an encrypted Tailscale token, test it, and sync devices. The token is write-only. Device aliases and WOL metadata stay local. Production service port bindings are changed only by editing `infra/.env` and redeploying; the web apply endpoint is disabled.
+Quick links and known devices may be seeded from JSON environment values. In Settings, administrators can store an encrypted Tailscale token, test it, and sync devices. The token is write-only. Device aliases and WOL metadata stay local. For Wake-on-LAN, use the target LAN's directed broadcast address (for example, `192.168.1.255`) when the default limited broadcast does not reach the device. A restricted Wake-on-LAN agent uses host networking so production wake packets leave Docker through the Pi's LAN interface. Production service port bindings are changed only by editing `infra/.env` and redeploying; the web apply endpoint is disabled.

@@ -11,6 +11,7 @@ services:
       PIHOMEHUB_PUBLIC_BASE_URL: ${PIHOMEHUB_PUBLIC_BASE_URL:-}
       PIHOMEHUB_ALLOWED_ORIGINS: ${PIHOMEHUB_ALLOWED_ORIGINS:-}
       PIHOMEHUB_CONTROL_AGENT_URL: http://control-agent:9000
+      PIHOMEHUB_WOL_AGENT_URL: http://172.30.0.1:9001
       PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.2
       PIHOMEHUB_HOST_PROC_NET_PATH: /host/proc/net
       PIHOMEHUB_COMPOSE_ENV_FILE: /run/pihomehub/infra.env
@@ -28,6 +29,7 @@ services:
           create_host_path: false
     depends_on:
       - control-agent
+      - wol-agent
     networks:
       - edge
       - control
@@ -42,14 +44,27 @@ services:
     environment:
       PIHOMEHUB_CONTROL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
       PIHOMEHUB_CONTROL_AGENT_SERVICES: adguard-home,gitea,uptime-kuma,vaultwarden,mosquitto
-    expose:
-      - "9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
       - "${DOCKER_GID:-999}"
     networks:
       - control
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  wol-agent:
+    build:
+      context: ../apps/control_agent
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app.wol:app", "--host", "172.30.0.1", "--port", "9001", "--no-server-header"]
+    environment:
+      PIHOMEHUB_WOL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
+    # Host networking lets the packet leave Docker through the Pi's LAN
+    # interface. It listens only on the private edge bridge gateway and has no
+    # Docker socket or other host mounts.
+    network_mode: host
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

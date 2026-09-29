@@ -68,6 +68,7 @@ def get_devices(db: Session) -> list[DeviceSummary]:
             ip_address=device.ip_address,
             tailscale_name=device.tailscale_name,
             mac_address=device.mac_address,
+            broadcast_address=device.broadcast_address,
             supports_wol=device.supports_wol,
             status=_ping_host(device.ip_address or device.tailscale_name),
             description=device.description,

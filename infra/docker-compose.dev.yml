@@ -32,6 +32,10 @@ services:
     environment:
       PIHOMEHUB_CONTROL_AGENT_SECRET: development-control-agent-secret
 
+  wol-agent:
+    environment:
+      PIHOMEHUB_WOL_AGENT_SECRET: development-control-agent-secret
+
   caddy:
     profiles: [production-ingress]
 

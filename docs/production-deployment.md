@@ -13,7 +13,7 @@ docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm backen
 docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
 ```
 
-5. Confirm `docker compose --env-file infra/.env -f infra/docker-compose.yml config` publishes only the loopback-bound Caddy HTTPS port. Confirm backend and control-agent ports are absent and the backend has no Docker socket mount.
+5. Confirm `docker compose --env-file infra/.env -f infra/docker-compose.yml config` publishes only the loopback-bound Caddy HTTPS port. Confirm backend and control-agent ports are absent, the Wake-on-LAN agent binds only to `172.30.0.1`, and the backend has no Docker socket mount.
 6. Configure Tailscale Serve as documented in [tailscale-serve.md](tailscale-serve.md). Never enable Funnel.
 
 For a trusted-LAN-only deployment, set `PIHOMEHUB_INGRESS_BIND_ADDRESS` to the Pi's specific LAN address, not `0.0.0.0`, and install/trust Caddy's local CA on clients. Development uses both files: `docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up --build` and may expose 5173/8000.

@@ -13,5 +13,6 @@ class Device(Base):
     ip_address: Mapped[str | None] = mapped_column(String(128))
     tailscale_name: Mapped[str | None] = mapped_column(String(128))
     mac_address: Mapped[str | None] = mapped_column(String(32))
+    broadcast_address: Mapped[str | None] = mapped_column(String(128))
     supports_wol: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)

@@ -9,6 +9,7 @@ class DeviceSummary(BaseModel):
     ip_address: str | None
     tailscale_name: str | None
     mac_address: str | None
+    broadcast_address: str | None
     supports_wol: bool
     status: str
     description: str | None
@@ -22,6 +23,7 @@ class DeviceCreate(BaseModel):
     ip_address: str | None = Field(default=None, max_length=128)
     tailscale_name: str | None = Field(default=None, max_length=128)
     mac_address: str | None = Field(default=None, max_length=32)
+    broadcast_address: str | None = Field(default=None, max_length=128)
     supports_wol: bool = False
     description: str | None = None
 
@@ -32,5 +34,6 @@ class DeviceUpdate(BaseModel):
     ip_address: str | None = Field(default=None, max_length=128)
     tailscale_name: str | None = Field(default=None, max_length=128)
     mac_address: str | None = Field(default=None, max_length=32)
+    broadcast_address: str | None = Field(default=None, max_length=128)
     supports_wol: bool | None = None
     description: str | None = None

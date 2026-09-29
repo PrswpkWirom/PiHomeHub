@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 import time
 from typing import Any
@@ -22,8 +23,15 @@ def _signature(method: str, path: str, body: bytes, timestamp: str, nonce: str) 
     ).hexdigest()
 
 
-def _request(method: str, path: str, *, timeout: float = 8.0) -> dict[str, Any]:
-    body = b""
+def _request(
+    method: str,
+    path: str,
+    *,
+    base_url: str | None = None,
+    json_body: dict[str, Any] | None = None,
+    timeout: float = 8.0,
+) -> dict[str, Any]:
+    body = b"" if json_body is None else json.dumps(json_body, separators=(",", ":")).encode("utf-8")
     timestamp = str(int(time.time()))
     nonce = secrets.token_urlsafe(18)
     headers = {
@@ -31,8 +39,10 @@ def _request(method: str, path: str, *, timeout: float = 8.0) -> dict[str, Any]:
         "X-Control-Nonce": nonce,
         "X-Control-Signature": _signature(method, path, body, timestamp, nonce),
     }
+    if json_body is not None:
+        headers["Content-Type"] = "application/json"
     try:
-        with httpx.Client(base_url=get_settings().control_agent_url, timeout=timeout) as client:
+        with httpx.Client(base_url=base_url or get_settings().control_agent_url, timeout=timeout) as client:
             response = client.request(method, path, content=body, headers=headers)
     except httpx.HTTPError as exc:
         raise ControlAgentError("Control agent is unavailable") from exc
@@ -60,3 +70,12 @@ def request_service_action(slug: str, action: str) -> dict[str, Any]:
     # caller alive slightly longer so it never reports failure while Docker is
     # still changing state.
     return _request("POST", f"/v1/services/{slug}/{action}", timeout=125.0)
+
+
+def request_wake_on_lan(mac_address: str, broadcast_address: str) -> None:
+    _request(
+        "POST",
+        "/v1/wake",
+        base_url=get_settings().wol_agent_url,
+        json_body={"mac_address": mac_address, "broadcast_address": broadcast_address},
+    )
