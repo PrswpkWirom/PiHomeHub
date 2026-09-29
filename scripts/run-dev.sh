@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -x "$ROOT_DIR/.tools/node/bin/node" ]]; then
+  PATH="$ROOT_DIR/.tools/node/bin:$PATH"
+  export PATH
+fi
 BACKEND_PORT="${PIHOMEHUB_BACKEND_PORT:-8000}"
 FRONTEND_PORT="${PIHOMEHUB_FRONTEND_PORT:-5173}"
 HOST="${PIHOMEHUB_DEV_HOST:-0.0.0.0}"

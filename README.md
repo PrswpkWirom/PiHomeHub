@@ -46,7 +46,7 @@ Browser
 ## Requirements
 
 - Python 3.12+
-- Node.js 18+ for local frontend development
+- Node.js 20.19.5 and npm (the same pinned release used by the frontend image)
 - Docker Engine and Docker Compose for containerized development or production
 - Tailscale for private remote access in a Raspberry Pi deployment
 
@@ -54,31 +54,31 @@ Browser
 
 Run these commands from the repository root.
 
-1. Create the backend environment and install dependencies:
+1. Create the local configuration, Python environment, database, and frontend dependencies:
 
    ```bash
    cp apps/backend/.env.example apps/backend/.env
    python3 -m venv .venv
    . .venv/bin/activate
    pip install -r apps/backend/requirements.txt
-   (cd apps/backend && ../../.venv/bin/alembic upgrade head)
+   PYTHONPATH=apps/backend .venv/bin/alembic -c apps/backend/alembic.ini upgrade head
+   npm ci --prefix apps/web
    ```
 
-2. Create the first administrator interactively:
+2. Create the local administrator interactively:
 
    ```bash
    PYTHONPATH=apps/backend .venv/bin/python -m app.cli create-admin
    ```
 
-   The password is never read from or stored in the environment for
-   production. Use at least 12 characters.
+   For this local instance, use username `admin` and password
+   `1234567891011`. Admin passwords are saved as Argon2id hashes in the local
+   SQLite database; the CLI does not put the password in `.env`.
 
-3. Install and run the frontend:
+3. Start the frontend:
 
    ```bash
-   cd apps/web
-   npm ci
-   npm run dev
+   npm --prefix apps/web run dev
    ```
 
 4. In another terminal, run the API:
@@ -98,10 +98,14 @@ above and run:
 
 ## Docker development
 
-The development override enables source mounts, Vite HMR, and the local API
-ports. It is for local development only:
+The development override enables source mounts, Vite HMR, and local API
+ports. Install Docker Engine and the Docker Compose v2 plugin first. From the
+repository root, create the bind-mounted local config, then build and
+initialize the persistent development database:
 
 ```bash
+cp infra/.env.example infra/.env
+
 docker compose \
   -f infra/docker-compose.yml \
   -f infra/docker-compose.dev.yml \
@@ -124,7 +128,10 @@ docker compose \
 ```
 
 Open <http://localhost:5173>. The development backend is available at
-<http://localhost:8000>.
+<http://localhost:8000>. The Compose development database is separate from
+the local Python database, so create its admin with the command above. The
+development override credentials and secrets are for local use only. For a
+quick login, enter `admin` and `1234567891011` at the CLI prompts.
 
 ## Production deployment
 
@@ -133,7 +140,9 @@ default. The backend, frontend, and control agent are private containers; the
 frontend is served as a static build and the backend has no Docker socket
 mount.
 
-1. Install Docker Engine/Compose and Tailscale on the Raspberry Pi.
+1. Install Docker Engine with the Docker Compose v2 plugin and Tailscale on
+   the Raspberry Pi. Keep host firewall access limited to the trusted LAN or
+   tailnet.
 2. Create production configuration and generate two independent secrets:
 
    ```bash
@@ -150,10 +159,11 @@ mount.
 3. Build, migrate, create the first administrator, and start the stack:
 
    ```bash
-   docker compose -f infra/docker-compose.yml build
-   docker compose -f infra/docker-compose.yml run --rm backend alembic upgrade head
-   docker compose -f infra/docker-compose.yml run --rm backend python -m app.cli create-admin
-   docker compose -f infra/docker-compose.yml up -d
+   docker compose --env-file infra/.env -f infra/docker-compose.yml config -q
+   docker compose --env-file infra/.env -f infra/docker-compose.yml build
+   docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm backend alembic upgrade head
+   docker compose --env-file infra/.env -f infra/docker-compose.yml run --rm backend python -m app.cli create-admin
+   docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
    ```
 
 4. To expose the loopback-bound Caddy listener privately through Tailscale:
@@ -164,6 +174,12 @@ mount.
    ```
 
    Do not enable Tailscale Funnel.
+
+5. Check service status and logs with `docker compose --env-file infra/.env -f
+   infra/docker-compose.yml ps` and `docker compose --env-file infra/.env -f
+   infra/docker-compose.yml logs -f backend caddy web`. Back up the Docker
+   volume `backend-data` and `infra/.env` before upgrades; see the production
+   runbook for restore and secret rotation.
 
 See [Production deployment](docs/production-deployment.md) and
 [Tailscale Serve](docs/tailscale-serve.md) for the complete checklist,
@@ -209,9 +225,9 @@ cd apps/web
 npm test -- --run
 npm run build
 
-# Validate the production Compose file
+# Validate the production Compose file (after creating infra/.env)
 cd ../..
-docker compose -f infra/docker-compose.yml config -q
+docker compose --env-file infra/.env -f infra/docker-compose.yml config -q
 ```
 
 ## Documentation
