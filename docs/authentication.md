@@ -50,7 +50,7 @@ account's sessions. Administrators cannot demote or disable their own account,
 and the backend rejects any change that would leave no enabled administrator.
 These protections are enforced atomically by the backend.
 
-Production cookies are `__Host-pihomehub_session` and
+HTTPS production cookies are `__Host-pihomehub_session` and
 `__Host-pihomehub_csrf`, with `Secure`, `SameSite=Strict`, path `/`, and no
 Domain. The session cookie is HttpOnly. The frontend copies the readable
 synchronizer token into `X-CSRF-Token`; the backend also validates
@@ -73,3 +73,11 @@ For a forgotten password, stop the app, use an offline administrative
 procedure to set a new Argon2id hash or create a replacement administrator
 with the CLI, then revoke the old account's sessions. Never place passwords in
 Compose, shell history, or logs.
+
+Explicit `PIHOMEHUB_ACCESS_MODE=private-http` uses `pihomehub_private_session`
+and `pihomehub_private_csrf`. They retain HttpOnly for the session, SameSite=Strict,
+path `/`, and no Domain, while omitting Secure to work on private HTTP.
+Production HTTPS remains the default when no access mode is specified.
+Private HTTP configuration permits only private IP/localhost HTTP origins.
+The frontend also reads the private CSRF cookie after reload. Switching modes
+requires signing in again; it preserves accounts and stored data.

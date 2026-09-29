@@ -40,8 +40,8 @@ The development cookie is deliberately non-Secure and uses a separate name. Neve
 
 Use [production-deployment.md](production-deployment.md). Create
 `infra/.env`, generate the required independent secrets, and pass the file with
-`--env-file infra/.env` to Compose. Production has one loopback-bound HTTPS
-ingress, static frontend assets, no backend/control-agent host ports, no
+`--env-file infra/.env` to Compose. Production uses direct private HTTP on the chosen Tailscale/LAN IP, or optional
+HTTPS on loopback with Tailscale Serve, with static frontend assets, no backend/control-agent host ports, no
 Docker socket in FastAPI, and no environment-supplied administrator password.
 
 For an explicit Docker development stack, first copy

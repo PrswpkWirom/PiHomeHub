@@ -1,4 +1,5 @@
 import json
+import ipaddress
 import os
 from pathlib import Path
 import subprocess
@@ -16,7 +17,8 @@ def test_production_compose_has_single_ingress_and_isolates_docker_socket():
     assert "ports" not in services["web"]
     assert "ports" not in services["control-agent"]
     assert services["caddy"]["ports"] == [
-        "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
+        "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTP_PORT:-80}:80",
+        "${PIHOMEHUB_HTTPS_BIND_ADDRESS:-${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
     ]
     assert all("docker.sock" not in str(volume) for volume in services["backend"].get("volumes", []))
     assert any("docker.sock" in str(volume) for volume in services["control-agent"]["volumes"])
@@ -32,6 +34,14 @@ def test_production_compose_has_single_ingress_and_isolates_docker_socket():
     assert compose_env_mount["read_only"] is True
     assert compose_env_mount["bind"]["create_host_path"] is False
     assert compose["networks"]["control"]["internal"] is True
+    edge_ipam = compose["networks"]["edge"]["ipam"]["config"][0]
+    dynamic_pool = ipaddress.ip_network(edge_ipam["ip_range"])
+    subnet = ipaddress.ip_network(edge_ipam["subnet"])
+    assert dynamic_pool.subnet_of(subnet)
+    for address in ("172.30.0.2", "172.30.0.3"):
+        assert ipaddress.ip_address(address) in subnet
+        assert ipaddress.ip_address(address) not in dynamic_pool
+    assert edge_ipam["gateway"] == "172.30.0.1"
 
 
 def test_production_frontend_is_static_and_backend_has_no_docker_cli():
@@ -47,6 +57,9 @@ def test_production_frontend_is_static_and_backend_has_no_docker_cli():
     assert "header_up -Cookie" in ingress
     assert "header_up -Authorization" in ingress
     assert "header_up -X-CSRF-Token" in ingress
+    assert "default_sni 127.0.0.1" in ingress
+    assert "https://127.0.0.1" in ingress
+    assert "import {$PIHOMEHUB_ACCESS_MODE:https}" in ingress
 
 
 def test_production_core_healthchecks_and_logs_are_bounded():
@@ -59,6 +72,7 @@ def test_production_core_healthchecks_and_logs_are_bounded():
         assert service["healthcheck"]["timeout"] == "5s"
         assert service["init"] is True
     assert compose["services"]["caddy"]["depends_on"]["backend"]["condition"] == "service_healthy"
+    assert compose["services"]["caddy"]["healthcheck"]["test"][-1] == "https://127.0.0.1/"
 
 
 def test_service_worker_invalidates_old_caches_and_never_caches_api():

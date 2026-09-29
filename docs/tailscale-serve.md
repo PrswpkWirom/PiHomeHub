@@ -1,11 +1,15 @@
-# Tailscale Serve
+# Tailscale Serve (optional HTTPS mode)
 
-With production Caddy bound to `127.0.0.1:443`, expose it only inside the tailnet:
+Direct `http://<server-tailscale-ip>` access in `private-http` mode does not need Serve. Use this guide when choosing browser HTTPS instead.
+
+Set `PIHOMEHUB_ACCESS_MODE=https`. With production Caddy bound to `127.0.0.1:443`, expose it only inside the tailnet:
 
 ```bash
 sudo tailscale serve --bg https+insecure://127.0.0.1:443
 tailscale serve status
 ```
+
+Caddy provisions a local certificate for `127.0.0.1` and supplies a default TLS server name for the loopback connection. Its health check verifies that this HTTPS hop serves successfully.
 
 Tailscale terminates the browser-facing HTTPS certificate; `https+insecure` is limited to the local hop because Caddy uses its internal certificate. Set `PIHOMEHUB_PUBLIC_BASE_URL` and `PIHOMEHUB_ALLOWED_ORIGINS` to the exact `https://node.tailnet.ts.net` URL reported by Serve. Use tailnet ACLs to restrict users/devices.
 

@@ -11,8 +11,8 @@ This is a local operator reference for running PiHomeHub, administering accounts
 | Frontend | Vite development server with source bind mount and HMR | Static build served by Caddy |
 | Backend | Published on host port `8000`; source bind-mounted | Private container port only; not published |
 | Control agent | Private Docker network | Private Docker network |
-| Main ingress | Direct Vite/backend development ports | Caddy HTTPS on `127.0.0.1:443` by default |
-| Session cookie | Development cookie without `Secure` | `Secure`, `HttpOnly`, `SameSite=Strict`, host-only cookie |
+| Main ingress | Direct Vite/backend development ports | Caddy HTTP on the chosen private IP, or optional HTTPS/Serve |
+| Session cookie | Development cookie without `Secure` | HttpOnly, SameSite=Strict, host-only; Secure in HTTPS mode |
 | FastAPI docs | Available at `http://localhost:8000/docs` | Disabled |
 | Secrets | Explicit development-only values from the dev override | Strong unique values required in `infra/.env` |
 | Intended use | Local coding and testing only | Raspberry Pi LAN/Tailscale deployment |
@@ -168,9 +168,11 @@ docker compose --env-file infra/.env -f infra/docker-compose.yml up -d
 
 Do not run the initial `up` before applying migrations and creating the administrator.
 
-## Production through Tailscale Serve
+## Production access
 
-Production Caddy binds to loopback by default. Publish it privately inside the tailnet:
+The convenient setup opens directly at `http://<server-tailscale-ip>` with `PIHOMEHUB_ACCESS_MODE=private-http`. Follow the [README](README.md) for the matching bind address and URL settings.
+
+For optional HTTPS instead, set `PIHOMEHUB_ACCESS_MODE=https` and bind Caddy to loopback. Publish it privately inside the tailnet:
 
 ```bash
 sudo tailscale serve --bg https+insecure://127.0.0.1:443

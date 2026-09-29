@@ -516,3 +516,45 @@ async def test_real_app_security_headers_are_present(app):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
     assert response.headers["Referrer-Policy"] == "no-referrer"
+
+
+def test_private_http_configuration_is_explicit_and_restricted_to_private_origins():
+    kwargs = dict(env="production", secret_key="s" * 40, control_agent_secret="c" * 40,
+                  admin_password="", port_configuration_mode="operator")
+    for origin in ("http://100.108.62.50", "http://192.168.0.58", "http://localhost", "http://[fd00::1]"):
+        settings = Settings(**kwargs, access_mode="private-http", public_base_url=origin, allowed_origins=origin)
+        assert settings.cookie_name == "pihomehub_private_session"
+        assert settings.csrf_cookie_name == "pihomehub_private_csrf"
+        assert settings.cookie_secure is False
+    for origin in ("http://8.8.8.8", "http://0.0.0.0", "http://public.example", "https://100.108.62.50", "http://100.108.62.50/path"):
+        with pytest.raises(ValueError, match="private-http requires"):
+            Settings(**kwargs, access_mode="private-http", public_base_url=origin, allowed_origins=origin)
+    with pytest.raises(ValueError, match="must use HTTPS"):
+        Settings(**kwargs, public_base_url="http://100.108.62.50", allowed_origins="http://100.108.62.50")
+
+
+@pytest.mark.anyio
+async def test_private_http_login_session_origin_and_csrf_enforcement(app, monkeypatch):
+    origin = "http://100.108.62.50"
+    monkeypatch.setenv("PIHOMEHUB_ENV", "production")
+    monkeypatch.setenv("PIHOMEHUB_ACCESS_MODE", "private-http")
+    monkeypatch.setenv("PIHOMEHUB_PUBLIC_BASE_URL", origin)
+    monkeypatch.setenv("PIHOMEHUB_ALLOWED_ORIGINS", origin)
+    monkeypatch.setenv("PIHOMEHUB_ADMIN_PASSWORD", "")
+    monkeypatch.setenv("PIHOMEHUB_PORT_CONFIGURATION_MODE", "operator")
+    get_settings.cache_clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url=origin) as client:
+            response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+            assert response.status_code == 200
+            cookie = next(value for value in response.headers.get_list("set-cookie") if "pihomehub_private_session=" in value)
+            assert "HttpOnly" in cookie and "SameSite=strict" in cookie
+            assert "Secure" not in cookie and "Domain=" not in cookie
+            assert "Strict-Transport-Security" not in response.headers
+            assert (await client.get("/api/auth/me")).status_code == 200
+            assert (await client.post("/api/notifications/read-all")).status_code == 200
+            assert (await client.post("/api/notifications/read-all", headers={"Origin": "http://attacker.example"})).status_code == 403
+            client.csrf_token = None
+            assert (await client.post("/api/notifications/read-all")).status_code == 403
+    finally:
+        get_settings.cache_clear()

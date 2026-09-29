@@ -13,7 +13,7 @@ Use the production Docker Compose stack for an always-on server. The application
 - **Planner:** household and maintenance tasks. Deadline notifications are deferred until tasks have real due dates.
 - **Accounts:** administrator/viewer roles, personal passwords and sessions, recent authentication for sensitive actions, and audit history.
 
-PiHomeHub is intended for trusted LAN or Tailscale access. Each person signs in with a local PiHomeHub account.
+PiHomeHub is intended for trusted LAN or Tailscale access. Each person signs in with a local PiHomeHub account. The simple deployment opens directly at `http://<server-tailscale-ip>`; Tailscale Serve and browser certificates are optional. Both machines must be connected to the same tailnet.
 
 ## What runs where
 
@@ -23,7 +23,7 @@ PiHomeHub is intended for trusted LAN or Tailscale access. Each person signs in 
 | Backend | Container | FastAPI, SQLite access, notification monitor, authentication, and integrations |
 | Control agent | Private container | Allowlisted Docker status/start/stop/restart; the only application container with the Docker socket |
 | Wake-on-LAN agent | Container with host networking | Signed requests and LAN broadcast packets |
-| HTTPS ingress | Container | Caddy; only the core HTTPS listener is published, on loopback by default |
+| Ingress | Container | Caddy; direct HTTP on the chosen private IP, with HTTPS available as a separate access mode |
 | SQLite | Persistent Docker volume | Accounts, sessions, devices, tasks, audit events, and notification history/state |
 | Tailscale | Host service | Private remote access and persistent host identity |
 | Docker and host metrics | Host | Container runtime; narrowly mounted read-only memory, thermal, network, and root-filesystem probes |
@@ -32,12 +32,11 @@ PiHomeHub is intended for trusted LAN or Tailscale access. Each person signs in 
 SQLite does not need its own container. The notification monitor runs inside the backend. This single-host deployment does not require Redis, a task queue, Kubernetes, or an additional proxy.
 
 ```text
-Browser -> Tailscale Serve -> loopback Caddy HTTPS
-                              |-> static web container
-                              |-> backend -> persistent SQLite volume
-                                          |-> read-only host metrics
-                                          |-> private Docker control agent
-                                          |-> host-network Wake-on-LAN agent
+Browser -> encrypted Tailscale connection -> server Tailscale IP:80 -> Caddy
+                                                                      |-> web
+                                                                      |-> backend -> SQLite
+                                                                                  |-> host metrics
+                                                                                  |-> agents
 ```
 
 ## Stable home-server setup
@@ -45,6 +44,10 @@ Browser -> Tailscale Serve -> loopback Caddy HTTPS
 Start with a maintained 64-bit Linux installation, such as [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/documentation/computers/os.html). Use reliable power and cooling, a wired connection where practical, and a DHCP reservation for the server. An SSD is useful for persistent service data; verify the actual disk and power arrangement before enabling the optional services. The core app and the optional Git/password/DNS services have different resource needs; no load or capacity guarantee is implied.
 
 Install Docker Engine, Docker Compose v2, Git, and Tailscale on the host. Compose 2.24.4 or newer is required by the development override. See [Docker installation](https://docs.docker.com/engine/install/) and [Tailscale installation](https://tailscale.com/docs/install/linux).
+
+Check `docker compose version` and `docker buildx version` before continuing. If they are missing and Docker came from Ubuntu's `docker.io` package, install `sudo apt install docker-compose-v2 docker-buildx`. If Docker came from Docker's official repository, install `sudo apt install docker-compose-plugin docker-buildx-plugin` instead. An `unknown flag: --env-file` error from the wrapper usually means the Compose plugin is missing.
+
+Join the server to your tailnet with `sudo tailscale up` before selecting its Tailscale address.
 
 Run the commands below from the repository root. `scripts/compose.sh` always selects the production file and `infra/.env`.
 
@@ -57,7 +60,18 @@ Run the commands below from the repository root. `scripts/compose.sh` always sel
    openssl rand -hex 32
    ```
 
-   Edit `infra/.env`: put different generated values in `PIHOMEHUB_SECRET_KEY` and `PIHOMEHUB_CONTROL_AGENT_SECRET`. Set `PIHOMEHUB_PUBLIC_BASE_URL` and `PIHOMEHUB_ALLOWED_ORIGINS` to the exact HTTPS origin for your server. Set `DOCKER_GID` to the result of `stat -c "%g" /var/run/docker.sock`. Keep the existing Compose project name when upgrading; changing it can select a different database volume.
+   Edit `infra/.env`: put different generated values in `PIHOMEHUB_SECRET_KEY` and `PIHOMEHUB_CONTROL_AGENT_SECRET`. For direct access, get the server address with `tailscale ip -4` and replace the example IP in these settings:
+
+   ```env
+   PIHOMEHUB_ACCESS_MODE=private-http
+   PIHOMEHUB_INGRESS_BIND_ADDRESS=100.108.62.50
+   PIHOMEHUB_HTTPS_BIND_ADDRESS=127.0.0.1
+   PIHOMEHUB_HTTP_PORT=80
+   PIHOMEHUB_PUBLIC_BASE_URL=http://100.108.62.50
+   PIHOMEHUB_ALLOWED_ORIGINS=http://100.108.62.50
+   ```
+
+   `100.108.62.50` is this development machine's address; use your own server's address when deploying elsewhere. Set `DOCKER_GID` to the result of `stat -c "%g" /var/run/docker.sock`. Keep the existing Compose project name when upgrading; changing it can select a different database volume.
 
 2. Prepare the empty host root-disk probe and enable host services at boot:
 
@@ -80,15 +94,13 @@ Run the commands below from the repository root. `scripts/compose.sh` always sel
 
    Choose a unique administrator password at the secure CLI prompt. Existing installations should follow the [backup and upgrade procedure](docs/production-deployment.md#upgrades), rather than creating another first administrator.
 
-4. Publish the loopback listener privately through Tailscale:
+4. Open the hub from another machine connected to your tailnet:
 
-   ```bash
-   sudo tailscale serve --bg https+insecure://127.0.0.1:443
-   tailscale serve status
-   ./scripts/compose.sh ps
+   ```text
+   http://100.108.62.50
    ```
 
-   Open the HTTPS URL reported by Tailscale. Configure tailnet access controls and keep Funnel disabled. For LAN HTTPS and proxy-address configuration, see [Tailscale Serve](docs/tailscale-serve.md) and the [deployment guide](docs/production-deployment.md).
+   Substitute your server's Tailscale IP. Port 80 is implicit, so no port suffix is needed. Sign in with the administrator created above. Direct access requires no Serve command, DNS setup, or certificate installation. Tailnet access controls still decide which machines may connect. For trusted LAN-only access, use the server's LAN IP in the same three address settings. HTTPS/Tailscale Serve remains an optional mode in the [deployment guide](docs/production-deployment.md#optional-https-and-tailscale-serve).
 
 5. Take a verified backup and arrange daily backups to storage that survives loss of the Pi:
 
@@ -99,6 +111,20 @@ Run the commands below from the repository root. `scripts/compose.sh` always sel
    The snapshot contains the PiHomeHub database, configuration, secrets, source revision, and checksums. It does not include the optional services data. Instructions for the supplied daily timer, off-device copies, retention, and a restore drill are in [Backups and restore](docs/production-deployment.md#backups-and-restore).
 
 The Compose stack includes health checks, startup readiness checks, graceful shutdown, restart policies, and container log rotation. Docker restarts exited containers with `unless-stopped`; a health check alone does not restart a hung container. Use a monitor outside this Pi to detect a whole-server outage. PiHomeHub cannot produce notifications while its own backend or host is down.
+
+### Access settings
+
+`PIHOMEHUB_INGRESS_BIND_ADDRESS` chooses the local IP for HTTP; `PIHOMEHUB_HTTPS_BIND_ADDRESS` independently chooses the HTTPS interface (loopback in the direct-access example). The bind address it has no scheme or port. `PIHOMEHUB_PUBLIC_BASE_URL` is the full URL you open, including `http://`. `PIHOMEHUB_ALLOWED_ORIGINS` lists browser addresses trusted for writes; usually it is identical to the public URL. Include `:<port>` in both URL fields when using a nonstandard port.
+
+`private-http` uses production accounts, audit logs, permissions, and CSRF protection with cookies that work over HTTP. It accepts only private-IP/localhost HTTP origins. For Tailscale clients, the transport between machines is [encrypted by Tailscale](https://tailscale.com/security). On a plain LAN, HTTP has no transport encryption; choose HTTPS for networks where that matters. Browser PWA/service-worker features require HTTPS; the regular dashboard works in either mode.
+
+After changing access settings, run:
+
+```bash
+./scripts/compose.sh up -d --wait --wait-timeout 180
+```
+
+Sign in again when switching access modes. Existing accounts and database records remain intact.
 
 ## Daily operations
 
@@ -111,7 +137,7 @@ The Compose stack includes health checks, startup readiness checks, graceful shu
 
 Enable automatic OS security updates according to your host policy, keep Docker/Tailscale current, and review pinned application images and dependency advisories before upgrading. Reboot-test the server, verify backup restores, and periodically check free space. Notification/audit history currently has no automatic retention policy. Keep one backend instance using the local SQLite volume; the persisted monitor lock prevents duplicate collectors on that database.
 
-A stable first deployment should pass the [acceptance checks](docs/production-deployment.md#acceptance-checks): host reboot, metrics source, browser-closed outage/recovery, backend restart persistence, independent account badges, and backup restoration. This repository provides a single-host deployment; availability still depends on the Pi, its storage, power, and network.
+A stable first deployment should pass the [acceptance checks](docs/production-deployment.md#acceptance-checks): direct browser access, host reboot, metrics source, browser-closed outage/recovery, backend restart persistence, independent account badges, and backup restoration. This repository provides a single-host deployment; availability still depends on the Pi, its storage, power, and network.
 
 ## Optional home services
 

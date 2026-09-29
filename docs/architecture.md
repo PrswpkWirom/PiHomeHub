@@ -6,8 +6,8 @@ PiHomeHub v0.1 is a local-first React PWA, FastAPI API, SQLite database, and Doc
 
 ```text
 Browser
-  -> Tailscale Serve HTTPS (recommended)
-  -> loopback Caddy HTTPS (only published Compose port)
+  -> encrypted Tailscale connection to the server IP:80 (direct private HTTP)
+  -> Caddy ingress (optional HTTPS/Serve mode is also supported)
      -> static frontend container
      -> FastAPI container
         -> SQLite

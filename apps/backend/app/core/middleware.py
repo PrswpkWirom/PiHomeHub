@@ -124,6 +124,6 @@ class RequestSecurityMiddleware(BaseHTTPMiddleware):
         )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
-        if settings.is_production:
+        if settings.is_production and not settings.uses_private_http:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response

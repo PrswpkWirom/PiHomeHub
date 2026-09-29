@@ -45,6 +45,16 @@ describe("API CSRF handling", () => {
     expect((init.headers as Headers).has("X-CSRF-Token")).toBe(false);
   });
 
+  it("restores the private HTTP CSRF cookie after a page reload", async () => {
+    vi.stubGlobal("document", { cookie: "pihomehub_private_csrf=private-token" });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), {
+      status: 200, headers: { "Content-Type": "application/json" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.post("/api/notifications/read-all");
+    expect((fetchMock.mock.calls[0][1].headers as Headers).get("X-CSRF-Token")).toBe("private-token");
+  });
+
   it("requests password step-up when recent authentication has expired", async () => {
     const dispatch = vi.fn();
     vi.stubGlobal("window", { dispatchEvent: dispatch });

@@ -1,4 +1,5 @@
 import json
+from ipaddress import ip_address, ip_network
 from functools import lru_cache
 from urllib.parse import urlparse
 from typing import Any, Literal
@@ -11,6 +12,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("apps/backend/.env", ".env"), env_prefix="PIHOMEHUB_", extra="ignore")
 
     env: str = "development"
+    access_mode: Literal["https", "private-http"] = "https"
     secret_key: str = "development-only-change-me"
     database_url: str = "sqlite:///./pihomehub.db"
     admin_username: str = ""
@@ -61,16 +63,24 @@ class Settings(BaseSettings):
         return self.env.lower() == "testing"
 
     @property
+    def uses_private_http(self) -> bool:
+        return self.is_production and self.access_mode == "private-http"
+
+    @property
     def cookie_name(self) -> str:
+        if self.uses_private_http:
+            return "pihomehub_private_session"
         return "__Host-pihomehub_session" if self.is_production else "pihomehub_session"
 
     @property
     def csrf_cookie_name(self) -> str:
+        if self.uses_private_http:
+            return "pihomehub_private_csrf"
         return "__Host-pihomehub_csrf" if self.is_production else "pihomehub_csrf"
 
     @property
     def cookie_secure(self) -> bool:
-        return self.is_production
+        return self.is_production and not self.uses_private_http
 
     @property
     def monitored_service_names(self) -> list[str]:
@@ -113,10 +123,29 @@ class Settings(BaseSettings):
                 raise ValueError("production PIHOMEHUB_SECRET_KEY must be a strong, unique value")
             if self.control_agent_secret in weak_values or len(self.control_agent_secret) < 32:
                 raise ValueError("production control-agent secret must be a strong, unique value")
-            if urlparse(self.public_base_url).scheme != "https":
-                raise ValueError("production public base URL must use HTTPS")
-            if any(urlparse(origin).scheme != "https" for origin in self.allowed_origins_list):
-                raise ValueError("production allowed origins must use HTTPS")
+            if self.uses_private_http:
+                origins = [self.public_base_url, *self.allowed_origins_list]
+                private_networks = tuple(ip_network(network) for network in (
+                    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                    "100.64.0.0/10", "127.0.0.0/8", "::1/128", "fc00::/7",
+                ))
+                for origin in origins:
+                    parsed = urlparse(origin)
+                    try:
+                        address = ip_address(parsed.hostname or "")
+                        allowed_host = any(address in network for network in private_networks)
+                    except ValueError:
+                        allowed_host = parsed.hostname == "localhost"
+                    if (parsed.scheme != "http" or not allowed_host or parsed.username or parsed.password
+                            or parsed.path not in {"", "/"} or parsed.query or parsed.fragment):
+                        raise ValueError("private-http requires HTTP origins on private IPs or localhost")
+                if not self.allowed_origins_list:
+                    raise ValueError("private-http requires an explicit allowed origin")
+            else:
+                if urlparse(self.public_base_url).scheme != "https":
+                    raise ValueError("production public base URL must use HTTPS")
+                if any(urlparse(origin).scheme != "https" for origin in self.allowed_origins_list):
+                    raise ValueError("production allowed origins must use HTTPS")
             if self.admin_password:
                 raise ValueError("production administrators must be created with the CLI, not environment passwords")
             if self.port_configuration_mode != "operator":

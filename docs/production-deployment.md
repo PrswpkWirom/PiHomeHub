@@ -11,8 +11,11 @@ Install Docker Engine with Compose v2, Git, and Tailscale using their official i
 ```bash
 docker version
 docker compose version
+docker buildx version
 sudo systemctl enable --now docker tailscaled
 ```
+
+If Compose or Buildx reports an unknown command, install the plugins matching your Docker installation. Ubuntu's `docker.io` package uses `sudo apt install docker-compose-v2 docker-buildx`; Docker's official repository uses `sudo apt install docker-compose-plugin docker-buildx-plugin`. The wrapper checks Compose availability before running deployment commands. Plugins manually installed in `~/.docker/cli-plugins` are available only to that user and must be updated manually; prefer system packages on the production server, including for the root-run backup timer.
 
 Choose a persistent checkout location, for example `/opt/PiHomeHub`. Run commands from that checkout. `./scripts/compose.sh` is the production wrapper; it supplies the correct Compose file and environment file even when called by a timer.
 
@@ -26,11 +29,26 @@ openssl rand -hex 32
 stat -c "%g" /var/run/docker.sock
 ```
 
-Set the two independent secret values, the exact HTTPS public origin, its matching allowed origin, and the Docker socket group ID in `infra/.env`. Keep the application secret with backups: the database contains encrypted Tailscale credentials that depend on it. Store administrator passwords separately in your password manager; the CLI stores Argon2id hashes in SQLite.
+Set the two independent secret values, the direct private address and matching public/allowed origin, and the Docker socket group ID in `infra/.env`. Keep the application secret with backups: the database contains encrypted Tailscale credentials that depend on it. Store administrator passwords separately in your password manager; the CLI stores Argon2id hashes in SQLite.
 
-Keep `PIHOMEHUB_INGRESS_BIND_ADDRESS=127.0.0.1` for Tailscale Serve. Keep backend/control-agent ports private. For trusted LAN HTTPS, bind ingress to the Pi specific LAN address, install Caddy local CA on clients, and choose the matching HTTPS origin. Configure host firewall and tailnet access controls for the actual deployment.
+Join the server to the tailnet using `sudo tailscale up` once. For convenient direct access, run `tailscale ip -4` and set the example values below to that server IP:
+
+```env
+PIHOMEHUB_ACCESS_MODE=private-http
+PIHOMEHUB_INGRESS_BIND_ADDRESS=100.108.62.50
+PIHOMEHUB_HTTPS_BIND_ADDRESS=127.0.0.1
+PIHOMEHUB_HTTP_PORT=80
+PIHOMEHUB_PUBLIC_BASE_URL=http://100.108.62.50
+PIHOMEHUB_ALLOWED_ORIGINS=http://100.108.62.50
+```
+
+Open `http://100.108.62.50` from another tailnet machine. Replace that example with the actual server address. No Tailscale Serve or certificate setup is needed. For LAN access, substitute the host's fixed LAN IP in all three address fields. The bind address must exist on the host before containers start; include this check in reboot acceptance. Keep backend and control-agent ports private, and choose host firewall/tailnet rules appropriate to the selected interface.
+
+Private HTTP is an explicit production mode. It retains authentication, authorization, rate limiting, HttpOnly/host-only/SameSite cookies, and CSRF checks. Its distinct cookie names omit `Secure` so browsers can send them over HTTP; HTTPS mode continues to use Secure `__Host-` cookies. Configuration rejects public-IP/hostname HTTP origins. Tailscale encrypts traffic between tailnet machines; LAN HTTP does not supply transport encryption. Use HTTPS mode for browser TLS or PWA/service-worker support.
 
 The default Compose project is `infra` because the Compose file lives there. If you set `COMPOSE_PROJECT_NAME`, choose it before first deployment and keep it identical in manual commands, timers, upgrades, and restores. A different project name selects different named volumes. The fixed `172.30.0.0/24` edge network must not overlap your LAN/VPN; changing it requires matching proxy/WOL addresses too.
+
+Automatic edge addresses use `172.30.0.128/25`, leaving Caddy's `.2` and development Vite's `.3` outside the automatic pool. The gateway is `.1` for the Wake-on-LAN agent. Before updating a network created without this pool, take a backup using the old configuration. Then update the configuration, run `./scripts/compose.sh down` (without `-v`), then `./scripts/compose.sh up -d --wait --wait-timeout 180`. Docker must recreate the network to apply its IPAM settings; the named database volume is retained. See [Compose IPAM configuration](https://docs.docker.com/reference/compose-file/networks/#ipam).
 
 ### Host metric mounts
 
@@ -63,18 +81,31 @@ Validate configuration, build images, then apply migrations and provision the fi
 
 `--no-deps` keeps migration/account jobs from starting the normal app stack. Choose a unique password at the interactive CLI prompt. Do not deploy with the development override, Vite, Uvicorn reload, or development secrets.
 
-Tailscale Serve publishes the loopback listener privately:
+### Optional HTTPS and Tailscale Serve
+
+For browser HTTPS with a trusted Tailscale hostname, use the original loopback proxy mode instead:
+
+```env
+PIHOMEHUB_ACCESS_MODE=https
+PIHOMEHUB_INGRESS_BIND_ADDRESS=127.0.0.1
+PIHOMEHUB_PUBLIC_BASE_URL=https://your-server.your-tailnet.ts.net
+PIHOMEHUB_ALLOWED_ORIGINS=https://your-server.your-tailnet.ts.net
+PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS=172.30.0.1
+```
 
 ```bash
+./scripts/compose.sh up -d --wait --wait-timeout 180
 sudo tailscale serve --bg https+insecure://127.0.0.1:443
 tailscale serve status
 ```
 
-`--bg` makes the Serve configuration persistent. The insecure certificate option applies only to the loopback hop to Caddy; browser-facing HTTPS is terminated by Tailscale. See [Tailscale Serve](tailscale-serve.md) for proxy-address configuration and [the official command reference](https://tailscale.com/docs/reference/tailscale-cli/serve). Keep Funnel disabled.
+Use the actual HTTPS hostname reported by Serve in both URL settings. `--bg` persists its configuration. Browser-facing HTTPS is terminated by Tailscale, while the loopback hop uses Caddy's internal certificate. See [Tailscale Serve](tailscale-serve.md) and [its official command reference](https://tailscale.com/docs/reference/tailscale-cli/serve). Keep Funnel disabled.
+
+For direct LAN HTTPS, set `PIHOMEHUB_HOST` to the LAN IP/hostname, set `PIHOMEHUB_HTTPS_BIND_ADDRESS` to that interface, use matching HTTPS origins, and trust Caddy's local CA on clients. In HTTPS mode, port 80 redirects to HTTPS; in private HTTP mode, it serves the application directly.
 
 ### Health, restart, and logs
 
-Core containers have 30-second health checks. Backend readiness checks database connectivity; agents check HTTP liveness; the web checks static serving; ingress checks its local Caddy admin configuration. Ingress waits for the backend and web to become healthy, and the backend waits for its agents. Health endpoints return fixed status without account or host details. Agent liveness does not prove Docker socket permissions or successful Wake-on-LAN delivery; test those integrations separately.
+Core containers have 30-second health checks. Backend readiness checks database connectivity; agents check HTTP liveness; the web checks static serving; ingress checks actual HTTPS serving through its loopback listener. Ingress waits for the backend and web to become healthy, and the backend waits for its agents. Health endpoints return fixed status without account or host details. Agent liveness does not prove Docker socket permissions or successful Wake-on-LAN delivery; test those integrations separately.
 
 Docker `unless-stopped` restarts exited containers and starts them after a daemon/host restart, unless an operator explicitly stopped them. A failing health check marks a container unhealthy; it does not automatically restart a hung process. Startup dependency ordering is applied by Compose, not re-run by Docker for every host reboot. Verify the eventual healthy state after reboot. [Docker restart policies](https://docs.docker.com/engine/containers/start-containers-automatically/) and [Compose readiness](https://docs.docker.com/compose/how-tos/startup-order/) explain these boundaries.
 
@@ -168,7 +199,7 @@ git pull --ff-only
 ./scripts/compose.sh ps
 ```
 
-Inspect the incoming revision and migrations before running this sequence. Build before stopping the backend to reduce downtime. If migration fails, keep the backend stopped, inspect the error, and recover from the verified snapshot with the compatible revision. Confirm HTTPS access, accounts, history, and integrations after upgrades. Optional profiles must be explicitly included when updating their containers.
+Inspect the incoming revision and migrations before running this sequence. Build before stopping the backend to reduce downtime. If migration fails, keep the backend stopped, inspect the error, and recover from the verified snapshot with the compatible revision. Confirm configured browser access, accounts, history, and integrations after upgrades. Optional profiles must be explicitly included when updating their containers.
 
 `docker compose restart` does not apply image or environment changes; recreate with `up -d`. Keep `.env` private and rotate independent application/control-agent secrets deliberately. Rotating the application secret requires re-entering encrypted Tailscale credentials; rotating the control-agent secret requires recreating backend and both agents together.
 
@@ -193,7 +224,7 @@ Tune the documented `PIHOMEHUB_NOTIFICATION_*` values in `infra/.env`, including
 
 Before treating this server as dependable, verify on the actual host:
 
-1. Sign in over the intended HTTPS origin; confirm only the intended core ingress is published and protected writes work.
+1. Sign in over the configured direct HTTP or HTTPS origin; confirm only the intended core ingress is published and protected writes work.
 2. Confirm Docker socket group access, allowlisted service controls, and Wake-on-LAN on the physical LAN.
 3. Compare dashboard memory, temperature, and root disk with host measurements. Confirm a separate data disk has its own monitoring.
 4. Close the browser, cause an outage in a disposable test device/service, wait for the configured debounce, then restore it and check one alert/recovery pair. Avoid disrupting home DNS or the password manager for this test.
@@ -231,4 +262,42 @@ The deployment polish was verified on the development host on 2026-09-29:
 - The pinned MQTT image can read the helper's private credentials as UID/GID 1883; host file ownership is retained.
 - Shell syntax, staged systemd unit validation, documentation file links, and `git diff --check` pass.
 
-The builds used the classic Docker builder because this development host's BuildKit exporter had previously failed. This changes the validation environment, not the production container configuration. Temporary smoke-test containers and volumes were removed afterward. No live deployment, systemd timer installation, host reboot, physical Wake-on-LAN test, production host-mount validation, or optional-service data restore was performed here; complete the acceptance checks on the target server.
+The builds used the classic Docker builder because this development host's BuildKit exporter had previously failed. This changes the validation environment, not the production container configuration. Temporary smoke-test containers and volumes were removed afterward. Those initial checks did not roll out the stack, install the systemd timer, reboot the host, test physical Wake-on-LAN, validate the production host mounts, or restore optional-service data. Complete the acceptance checks on the target server.
+
+### First startup correction
+
+During the operator's first production startup, Docker's automatic edge address
+allocation occupied Caddy's fixed `.2` address. The corrected pool separates
+automatic addresses from the fixed addresses; the network was recreated without
+deleting volumes. A verified SQLite snapshot and a full configuration/database
+backup were taken, and the provisioned administrator remains present. All five
+core containers now report healthy on this host.
+
+The first HTTPS request also exposed a missing ingress certificate: a bare
+`:443` site did not provision any certificate. Ingress now explicitly manages
+an internal certificate for `127.0.0.1` and `PIHOMEHUB_HOST` (default `localhost`),
+with `127.0.0.1` as the default SNI for the loopback Tailscale hop. The catch-all
+listener still proxies the external hostname. The health check now tests actual
+HTTPS serving instead of the admin API. Verified frontend HTTPS returns 200,
+and the unauthenticated account API returns 401. See [Caddy default SNI](https://caddyserver.com/docs/caddyfile/options#default-sni).
+Tailscale Serve was not yet configured at that point; its publication and the
+matching public/allowed origin settings remain operator setup steps.
+
+### Direct private HTTP access verification
+
+The running server was subsequently switched to explicit `private-http` mode,
+publishing `100.108.62.50:80` and retaining the optional HTTPS hop on
+`127.0.0.1:443`. Accounts and database records were preserved. The existing
+Tailscale Serve configuration was left intact, but direct HTTP does not depend
+on it. The new public/allowed origin is `http://100.108.62.50`.
+
+Verified on the host: direct HTTP frontend returns 200 without redirect/HSTS;
+the account API returns 401 before login; a protected write with the configured
+HTTP Origin passes the origin check and still requires login. Production-mode
+tests verify login, cookies, session persistence, rejection of untrusted Origins,
+and rejection of missing CSRF tokens. All 136 backend tests and 50 frontend
+tests pass; the production frontend build, rebuilt backend/web images, both
+Compose configurations, and npm audit pass (zero known npm vulnerabilities).
+All five core containers are healthy. An actual request from a second machine
+was not available in this workspace; that client must be connected to the same
+tailnet and permitted by its access rules.

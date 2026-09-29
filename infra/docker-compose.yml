@@ -17,6 +17,7 @@ services:
       dockerfile: Dockerfile
     environment:
       PIHOMEHUB_ENV: production
+      PIHOMEHUB_ACCESS_MODE: ${PIHOMEHUB_ACCESS_MODE:-https}
       PIHOMEHUB_SECRET_KEY: ${PIHOMEHUB_SECRET_KEY:-}
       PIHOMEHUB_CONTROL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
       PIHOMEHUB_DATABASE_URL: sqlite:////data/pihomehub.db
@@ -146,10 +147,12 @@ services:
   caddy:
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     environment:
+      PIHOMEHUB_ACCESS_MODE: ${PIHOMEHUB_ACCESS_MODE:-https}
       PIHOMEHUB_HOST: ${PIHOMEHUB_HOST:-localhost}
       PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS: ${PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS:-127.0.0.1 ::1}
     ports:
-      - "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
+      - "${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}:${PIHOMEHUB_HTTP_PORT:-80}:80"
+      - "${PIHOMEHUB_HTTPS_BIND_ADDRESS:-${PIHOMEHUB_INGRESS_BIND_ADDRESS:-127.0.0.1}}:${PIHOMEHUB_HTTPS_PORT:-443}:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -161,7 +164,7 @@ services:
         condition: service_healthy
     healthcheck:
       <<: *http-healthcheck
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "/dev/null", "https://127.0.0.1/"]
     init: true
     networks:
       edge:
@@ -241,6 +244,9 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+          # Keep dynamic allocations away from Caddy (.2) and dev Vite (.3).
+          ip_range: 172.30.0.128/25
+          gateway: 172.30.0.1
   control:
     internal: true
 

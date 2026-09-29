@@ -32,7 +32,7 @@ function csrfTokenFromCookie(): string | null {
   const cookie = document.cookie
     .split(";")
     .map((item) => item.trim())
-    .find((item) => item.startsWith("pihomehub_csrf=") || item.startsWith("__Host-pihomehub_csrf="));
+    .find((item) => item.startsWith("pihomehub_csrf=") || item.startsWith("__Host-pihomehub_csrf=") || item.startsWith("pihomehub_private_csrf="));
   return cookie ? decodeURIComponent(cookie.split("=", 2)[1]) : null;
 }
 

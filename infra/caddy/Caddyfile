@@ -1,16 +1,18 @@
 {
+	# Tailscale Serve connects to the loopback IP without a hostname SNI.
+	default_sni 127.0.0.1
+	# The explicit port-80 route chooses direct HTTP or an HTTPS redirect.
+	auto_https disable_redirects
 	servers {
 		trusted_proxies static {$PIHOMEHUB_TRUSTED_INGRESS_PROXY_IPS:127.0.0.1 ::1}
 		trusted_proxies_strict
 	}
 }
 
-:443 {
-	tls internal
+(pihomehub_routes) {
 	encode zstd gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
@@ -30,4 +32,23 @@
 			header_up -X-CSRF-Token
 		}
 	}
+}
+
+# Match the access mode shared with the backend's cookie/origin settings.
+(https) {
+	redir https://{host}{uri} 308
+}
+
+(private-http) {
+	import pihomehub_routes
+}
+
+http://:80 {
+	import {$PIHOMEHUB_ACCESS_MODE:https}
+}
+
+https://127.0.0.1, https://{$PIHOMEHUB_HOST:localhost}, :443 {
+	tls internal
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	import pihomehub_routes
 }
