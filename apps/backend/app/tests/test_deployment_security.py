@@ -27,12 +27,14 @@ def test_production_compose_has_single_ingress_and_isolates_docker_socket():
     assert services["caddy"]["networks"]["edge"]["ipv4_address"] == "172.30.0.2"
     assert services["backend"]["environment"]["PIHOMEHUB_TRUSTED_PROXY_IPS"] == "172.30.0.2"
     assert services["backend"]["environment"]["PIHOMEHUB_PORT_CONFIGURATION_MODE"] == "operator"
-    compose_env_mount = next(
+    service_config_mount = next(
         volume for volume in services["backend"]["volumes"]
-        if isinstance(volume, dict) and volume.get("target") == "/run/pihomehub/infra.env"
+        if isinstance(volume, dict) and volume.get("target") == "/run/pihomehub"
     )
-    assert compose_env_mount["read_only"] is True
-    assert compose_env_mount["bind"]["create_host_path"] is False
+    assert service_config_mount["read_only"] is True
+    assert service_config_mount["bind"]["create_host_path"] is False
+    assert services["backend"]["environment"]["PIHOMEHUB_SERVICE_CONFIG_FILE"] == "/run/pihomehub/services.json"
+    assert "PIHOMEHUB_COMPOSE_ENV_FILE" not in services["backend"]["environment"]
     assert compose["networks"]["control"]["internal"] is True
     edge_ipam = compose["networks"]["edge"]["ipam"]["config"][0]
     dynamic_pool = ipaddress.ip_network(edge_ipam["ip_range"])

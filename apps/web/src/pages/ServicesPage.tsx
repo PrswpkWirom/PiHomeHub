@@ -1,16 +1,17 @@
-import { AlertTriangle, ClipboardCopy, ExternalLink, Info, RefreshCw, Save, Server } from "lucide-react";
+import { AlertTriangle, ClipboardCopy, ExternalLink, Info, Pencil, Plus, RefreshCw, Save, Server } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { usePermissions } from "../components/AdminOnly";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { errorFeedback, FeedbackMessage, type Feedback } from "../components/FeedbackMessage";
 import { Panel } from "../components/Panel";
+import { ServiceLinkEditor } from "../components/ServiceLinkEditor";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
 import { usePendingPortPolling } from "../hooks/usePendingPortPolling";
-import type { ServiceActionResult, ServiceCapability, ServiceLink, ServicePortConfig, ServiceStatus } from "../types/api";
-import { resolveServiceLinkUrl } from "../utils/serviceLinks";
+import type { ServiceActionResult, ServiceCapability, ServiceLink, ServiceOperation, ServicePortConfig, ServiceStatus } from "../types/api";
+import { dashboardLinks, serviceLinkHref } from "../utils/serviceLinks";
 import { resolvedPortFeedback } from "../utils/servicePortState";
 
 type ServiceInfo = {
@@ -24,6 +25,7 @@ type ServiceInfo = {
 
 type ActionMessage = {
   serviceSlug: string;
+  operationId?: string;
   feedback: Feedback;
 };
 
@@ -75,20 +77,23 @@ function actionsForStatus(service: ServiceStatus, capability: ServiceCapability 
     return [];
   }
   if (service.status === "missing") {
-    return ["build", "start"].filter((action) => capability.actions.includes(action));
+    return service.setup_required ? [] : ["create"].filter((action) => capability.actions.includes(action));
   }
   if (service.status === "running") {
     return ["stop", "restart"].filter((action) => capability.actions.includes(action));
   }
-  return ["start", "restart"].filter((action) => capability.actions.includes(action));
+  if (["created", "exited", "dead", "stopped"].includes(service.status)) {
+    return ["start"].filter((action) => capability.actions.includes(action));
+  }
+  return [];
+}
+
+function makeOperationId() {
+  return typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function actionLabel(action: string) {
   return action.charAt(0).toUpperCase() + action.slice(1);
-}
-
-function completedActionLabel(action: string) {
-  return ({ start: "started", stop: "stopped", restart: "restarted" } as Record<string, string>)[action] ?? `${action} completed`;
 }
 
 function formatProtocols(protocols: string[]) {
@@ -271,7 +276,9 @@ export function ServicesPage() {
   const capabilities = useFetch<ServiceCapability[]>("/api/services/capabilities");
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const portConfigs = useFetch<ServicePortConfig[]>("/api/services/ports");
-  const [runningAction, setRunningAction] = useState<string | null>(null);
+  const [editingLink, setEditingLink] = useState<ServiceLink | null | undefined>(undefined);
+  const [linkFeedback, setLinkFeedback] = useState<Feedback | null>(null);
+  const [submittingBySlug, setSubmittingBySlug] = useState<Record<string, boolean>>({});
   const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
   const [portDrafts, setPortDrafts] = useState<Record<string, Record<string, string>>>({});
   const [portMessages, setPortMessages] = useState<Record<string, Feedback>>({});
@@ -280,8 +287,13 @@ export function ServicesPage() {
   const [pendingAction, setPendingAction] = useState<{ service: ServiceStatus; action: string } | null>(null);
   const [pendingPortSave, setPendingPortSave] = useState<ServicePortConfig | null>(null);
   const actionLock = useRef(false);
+  const [unconfirmed, setUnconfirmed] = useState<Record<string, { action: string; operationId: string }>>(() => {
+    try { return JSON.parse(sessionStorage.getItem("pihomehub-service-operations") ?? "{}"); } catch { return {}; }
+  });
   const pendingOrigins = useRef<Map<string, ServicePortConfig>>(new Map());
   const [awaitingVerification, setAwaitingVerification] = useState<Set<string>>(new Set());
+  const [statusRetryAttempt, setStatusRetryAttempt] = useState(0);
+  const quickLinks = useMemo(() => dashboardLinks(links.data, statuses.data), [links.data, statuses.data]);
   const capabilitiesBySlug = new Map((capabilities.data ?? []).map((capability) => [capability.slug, capability]));
   const portConfigsBySlug = useMemo(
     () => new Map((portConfigs.data ?? []).map((config) => [config.slug, config])),
@@ -380,51 +392,118 @@ export function ServicesPage() {
     retry: retryPendingPortPoll
   } = usePendingPortPolling(pendingSlugs, pollPendingPorts);
 
-  const runServiceAction = async (service: ServiceStatus, action: string) => {
-    if (!isAdmin || actionLock.current) return;
-    actionLock.current = true;
-    const key = `${service.slug}:${action}`;
-    setRunningAction(key);
+  const rememberUnconfirmed = (next: Record<string, { action: string; operationId: string }>) => {
+    setUnconfirmed(next);
+    try { sessionStorage.setItem("pihomehub-service-operations", JSON.stringify(next)); } catch { /* Status remains available from the server. */ }
+  };
+
+  useEffect(() => {
+    if (!statuses.data) return;
+    let changed = false;
+    const next = { ...unconfirmed };
+    for (const service of statuses.data) {
+      if (next[service.slug] && next[service.slug].operationId === service.operation?.operation_id) {
+        delete next[service.slug];
+        changed = true;
+      }
+    }
+    if (changed) rememberUnconfirmed(next);
+  }, [statuses.data, unconfirmed]);
+
+  useEffect(() => {
+    if (!actionMessage?.operationId || !statuses.data || statuses.error) return;
+    const latest = statuses.data.find((service) => service.slug === actionMessage.serviceSlug)?.operation;
+    if (latest?.operation_id === actionMessage.operationId) setActionMessage(null);
+  }, [actionMessage, statuses.data, statuses.error]);
+
+  const submitServiceAction = async (service: ServiceStatus, action: string, operationId = makeOperationId()) => {
+    if (!isAdmin || submittingBySlug[service.slug]) return;
+    setSubmittingBySlug((current) => ({ ...current, [service.slug]: true }));
     setActionMessage(null);
+    const pending = { ...unconfirmed, [service.slug]: { action, operationId } };
+    rememberUnconfirmed(pending);
     try {
-      const result = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${action}`);
-      if (!result.ok) {
-        throw new Error(`${service.name} rejected the ${action} request.`);
+      const accepted = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${action}`, { operation_id: operationId });
+      if (accepted.operation) {
+        statuses.setData((current) => (current ?? []).map((item) => item.slug === service.slug
+          ? { ...item, operation: accepted.operation }
+          : item));
       }
-      try {
-        const refreshed = await statuses.refetch();
-        void portConfigs.refetch().catch(() => undefined);
-        const current = refreshed.find((item) => item.slug === service.slug);
-        const verified = action === "stop"
-          ? current !== undefined && ["exited", "stopped"].includes(current.status)
-          : current?.status === "running";
-        setActionMessage({
-          serviceSlug: service.slug,
-          feedback: verified
-            ? { kind: "success", text: `${service.name} ${completedActionLabel(action)}.` }
-            : {
-                kind: "warning",
-                persistent: true,
-                text: `${service.name} accepted the ${action} request, but its latest status is ${current?.status ?? "unknown"}. Check again before retrying.`
-              }
-        });
-      } catch (refreshError) {
-        setActionMessage({
-          serviceSlug: service.slug,
-          feedback: {
-            kind: "warning",
-            persistent: true,
-            text: `${service.name} accepted the ${action} request, but status verification failed: ${refreshError instanceof Error ? refreshError.message : "status unavailable"}.`
-          }
-        });
-      }
+      const next = { ...pending };
+      delete next[service.slug];
+      rememberUnconfirmed(next);
+      void statuses.refetch().catch(() => undefined);
+      void portConfigs.refetch().catch(() => undefined);
     } catch (error) {
-      setActionMessage({ serviceSlug: service.slug, feedback: errorFeedback(error, `${service.name} action failed.`) });
+      if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
+        const next = { ...pending };
+        delete next[service.slug];
+        rememberUnconfirmed(next);
+      }
+      setActionMessage({
+        serviceSlug: service.slug,
+        operationId,
+        feedback: { kind: error instanceof ApiError && error.status >= 400 && error.status < 500 ? "error" : "warning", persistent: true, text: `${service.name}: ${error instanceof Error ? error.message : "The operation response was interrupted."} Check progress before retrying.` }
+      });
+      void statuses.refetch().catch(() => undefined);
     } finally {
-      actionLock.current = false;
-      setRunningAction(null);
+      setSubmittingBySlug((current) => ({ ...current, [service.slug]: false }));
     }
   };
+
+  const checkServiceOperation = async (service: ServiceStatus) => {
+    const unconfirmedOperation = unconfirmed[service.slug];
+    setSubmittingBySlug((current) => ({ ...current, [service.slug]: true }));
+    try {
+      if (unconfirmedOperation) {
+        try {
+          const operation = await api.get<ServiceOperation>(`/api/services/operations/${unconfirmedOperation.operationId}`);
+          statuses.setData((current) => (current ?? []).map((item) => item.slug === service.slug ? { ...item, operation } : item));
+        } catch {
+          const accepted = await api.post<ServiceActionResult>(`/api/services/${service.slug}/actions/${unconfirmedOperation.action}`, {
+            operation_id: unconfirmedOperation.operationId
+          });
+          if (accepted.operation) {
+            statuses.setData((current) => (current ?? []).map((item) => item.slug === service.slug ? { ...item, operation: accepted.operation } : item));
+          }
+        }
+        const next = { ...unconfirmed };
+        delete next[service.slug];
+        rememberUnconfirmed(next);
+      } else if (service.operation) {
+        const operation = await api.get<ServiceOperation>(`/api/services/operations/${service.operation.operation_id}`);
+        statuses.setData((current) => (current ?? []).map((item) => item.slug === service.slug ? { ...item, operation } : item));
+      }
+      await statuses.refetch();
+      setActionMessage((current) => current?.serviceSlug === service.slug ? null : current);
+    } catch (error) {
+      setActionMessage({ serviceSlug: service.slug, operationId: unconfirmedOperation?.operationId ?? service.operation?.operation_id,
+        feedback: errorFeedback(error, "Operation status is temporarily unavailable.") });
+    } finally {
+      setSubmittingBySlug((current) => ({ ...current, [service.slug]: false }));
+    }
+  };
+
+  const activeOperation = (operation: ServiceOperation | null | undefined) =>
+    Boolean(operation && ["queued", "running", "verifying", "unknown"].includes(operation.state));
+
+  useEffect(() => {
+    const hasActiveOperation = Boolean(Object.keys(unconfirmed).length)
+      || (statuses.data?.some((service) => activeOperation(service.operation)) ?? false);
+    const interval = statuses.error
+      ? Math.min(60_000, 2_000 * (2 ** Math.min(statusRetryAttempt, 5)))
+      : hasActiveOperation ? 2_000 : 15_000;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void statuses.refetch().then(() => setStatusRetryAttempt(0)).catch(() => setStatusRetryAttempt((attempt) => attempt + 1));
+    };
+    const timer = window.setInterval(refresh, interval);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [statuses.data, statuses.error, statuses.refetch, statusRetryAttempt, unconfirmed]);
 
   const updatePortDraft = (serviceSlug: string, portKey: string, value: string) => {
     setPortDrafts((current) => ({
@@ -565,8 +644,8 @@ export function ServicesPage() {
           </div>
         ) : null}
         <FeedbackMessage
-          feedback={statuses.error ? { kind: "error", persistent: true, text: statuses.error } : null}
-          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void statuses.refetch()}>Retry service status</button>}
+          feedback={statuses.error ? { kind: "warning", persistent: true, text: statuses.data ? `Showing stale service status. Refresh failed: ${statuses.error}` : statuses.error } : null}
+          action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void statuses.refetch().catch(() => undefined)}>Retry service status</button>}
         />
         <FeedbackMessage
           feedback={portConfigs.error ? { kind: "error", persistent: true, text: portConfigs.error } : null}
@@ -580,8 +659,12 @@ export function ServicesPage() {
           {!isAdmin && statuses.data?.some((service) => actionsForStatus(service, capabilitiesBySlug.get(service.slug)).length > 0) ? <p className="text-sm text-muted">Service controls require administrator access.</p> : null}
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
+            const dashboardLink = quickLinks.find((link) => link.slug === service.slug);
+            const dashboardUrl = dashboardLink ? serviceLinkHref(dashboardLink) : service.url;
             const actions = actionsForStatus(service, capabilitiesBySlug.get(service.slug));
             const portConfig = portConfigsBySlug.get(service.slug);
+            const outstandingRequest = unconfirmed[service.slug];
+            const pendingResponse = Boolean(outstandingRequest && outstandingRequest.operationId !== service.operation?.operation_id);
 
             return (
               <article key={service.slug} className="raised-card">
@@ -592,34 +675,42 @@ export function ServicesPage() {
                       <p className="font-semibold text-mist">{service.name}</p>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-muted">{service.detail}</p>
-                    {service.status === "running" && service.health_status ? <p className={`mt-1 text-xs font-semibold ${service.health_status === "unhealthy" ? "text-amber-400" : service.health_status === "healthy" ? "text-emerald-400" : "text-muted"}`}>Health check: {service.health_status}</p> : null}
+                    {service.status === "running" && dashboardUrl ? <a className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent-focus" href={dashboardUrl ?? undefined} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={14} /></a> : null}
+                    {service.status === "running" ? <p className={`mt-1 text-xs font-semibold ${service.health_status === "unhealthy" ? "text-amber-400" : service.health_status === "healthy" ? "text-emerald-400" : "text-muted"}`}>Application health: {service.health_status ?? "No health check configured"}</p> : null}
                   </div>
                   <StatusPill status={service.status} />
                 </div>
                 {actions.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-                    {actions.map((action) => {
-                      const key = `${service.slug}:${action}`;
-                      return (
-                        <button
-                          key={action}
-                          className="btn-secondary min-h-9 px-3 py-1"
-                          disabled={runningAction !== null || !isAdmin}
-                          aria-describedby={!isAdmin ? `service-admin-required-${service.slug}` : undefined}
-                          aria-busy={runningAction === key}
-                          type="button"
-                          onClick={() => {
-                            if (action === "stop" || action === "restart") setPendingAction({ service, action });
-                            else void runServiceAction(service, action);
-                          }}
-                        >
-                          {runningAction === key ? "Working..." : actionLabel(action)}
-                        </button>
-                      );
-                    })}
+                    {actions.map((action) => (
+                      <button
+                        key={action}
+                        className="btn-secondary min-h-9 px-3 py-1"
+                        disabled={Boolean(submittingBySlug[service.slug]) || activeOperation(service.operation) || Boolean(statuses.error) || statuses.refreshing || !isAdmin}
+                        aria-describedby={!isAdmin ? `service-admin-required-${service.slug}` : undefined}
+                        aria-busy={Boolean(submittingBySlug[service.slug])}
+                        type="button"
+                        onClick={() => {
+                          if (action === "stop" || action === "restart") setPendingAction({ service, action });
+                          else void submitServiceAction(service, action);
+                        }}
+                      >
+                        {submittingBySlug[service.slug] ? "Sending..." : action === "create" ? "Create and start" : actionLabel(action)}
+                      </button>
+                    ))}
                   </div>
                 ) : null}
                 {!isAdmin && actions.length > 0 ? <p id={`service-admin-required-${service.slug}`} className="mt-2 text-xs text-muted">Administrator access required</p> : null}
+                {service.setup_required ? <p className="mt-3 text-sm text-amber-300">Setup required: create Mosquitto credentials and add an allowed user to <code>infra/mosquitto/generated/acl</code>, then run <code>scripts/generate-service-config.py</code>.</p> : null}
+                {service.operation || outstandingRequest ? (
+                  <div className={`mt-3 rounded-xl border px-3 py-3 ${!pendingResponse && service.operation?.state === "failed" ? "border-red-400/40 bg-red-950/20" : !pendingResponse && service.operation?.state === "unknown" ? "border-amber-400/40 bg-amber-950/20" : !pendingResponse && service.operation?.state === "succeeded" ? "border-emerald-400/30 bg-emerald-950/10" : "border-line bg-deep/60"}`} role="status" aria-live="polite">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-mist">{actionLabel(pendingResponse ? outstandingRequest.action : service.operation?.action ?? "service")} · {pendingResponse ? "Request status unconfirmed" : service.operation?.state === "succeeded" ? "Complete" : service.operation?.state === "failed" ? "Failed" : service.operation?.state === "unknown" ? "Needs status check" : `${(service.operation?.stage ?? "Queued").charAt(0).toUpperCase()}${(service.operation?.stage ?? "queued").slice(1)}...`}</p>
+                      {pendingResponse || activeOperation(service.operation) || service.operation?.state === "failed" ? <button className="btn-secondary min-h-8 px-3 py-1 text-xs" disabled={Boolean(submittingBySlug[service.slug])} type="button" onClick={() => void checkServiceOperation(service)}>{submittingBySlug[service.slug] ? "Checking..." : "Check progress"}</button> : null}
+                    </div>
+                    {!pendingResponse && service.operation?.message ? <p className="mt-2 text-sm text-muted">{service.operation.message}</p> : pendingResponse ? <p className="mt-2 text-sm text-muted">PiHomeHub may already be processing this request. Check its saved operation before trying again.</p> : null}
+                  </div>
+                ) : null}
                 {actionMessage?.serviceSlug === service.slug ? (
                   <FeedbackMessage
                     feedback={actionMessage.feedback}
@@ -674,29 +765,40 @@ export function ServicesPage() {
           {statuses.data?.length === 0 ? <p className="empty-state">No monitored services are configured yet.</p> : null}
         </div>
       </Panel>
-      <Panel title="Dashboards" description="Open linked service dashboards in a new browser context.">
+      <Panel title="Dashboards" description="Open service dashboards and your own quick links." action={isAdmin ? <button className="btn-secondary whitespace-nowrap" type="button" disabled={editingLink !== undefined || links.loading || Boolean(links.error)} onClick={() => { setLinkFeedback(null); setEditingLink(null); }}><Plus size={16} />Add quick link</button> : undefined}>
+        {!isAdmin ? <p className="mb-4 text-sm text-muted">Administrator access required to add or edit links.</p> : null}
+        {editingLink !== undefined && isAdmin ? <ServiceLinkEditor key={editingLink?.slug ?? "new"} link={editingLink} onCancel={() => setEditingLink(undefined)} onSave={(saved) => {
+          links.setData((current) => [...(current ?? []).filter((link) => link.slug !== saved.slug), saved]);
+          setEditingLink(undefined);
+          setLinkFeedback({ kind: "success", text: `${saved.name} link saved.` });
+        }} /> : null}
+        <FeedbackMessage feedback={linkFeedback} onDismiss={() => setLinkFeedback(null)} className="mb-4" />
         {links.loading ? <div className="skeleton h-28" /> : null}
         <FeedbackMessage
           feedback={links.error ? { kind: "error", persistent: true, text: links.error } : null}
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void links.refetch()}>Retry dashboard links</button>}
         />
         <div className="grid gap-4">
-          {links.data?.map((link) => {
-            const resolvedUrl = resolveServiceLinkUrl(link.url);
+          {quickLinks.map((link) => {
+            const resolvedUrl = serviceLinkHref(link);
             return (
-              <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="raised-card group block transition duration-200 hover:-translate-y-0.5 hover:border-accent/35">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-mist">{link.name}</p>
-                  <ExternalLink className="text-muted transition group-hover:text-accent" size={16} />
+              <article key={link.slug} className="raised-card min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <a href={resolvedUrl} target="_blank" rel="noreferrer" className="group min-w-0 flex-1">
+                    <span className="flex items-center gap-2 font-semibold text-mist group-hover:text-accent">{link.name}<ExternalLink className="shrink-0" size={16} /></span>
+                    {link.description ? <p className="mt-2 text-sm leading-6 text-muted">{link.description}</p> : null}
+                    <p className="mt-2 break-all text-xs leading-5 text-accent">{resolvedUrl}</p>
+                  </a>
+                  {isAdmin ? <button className="btn-secondary min-h-9 shrink-0 px-3 py-1" type="button" aria-label={`Edit ${link.name} link`} disabled={editingLink !== undefined || links.loading || Boolean(links.error)} onClick={() => { setLinkFeedback(null); setEditingLink(link); }}><Pencil size={14} />Edit</button> : null}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted">{link.description ?? resolvedUrl}</p>
-              </a>
+                <p className="mt-2 text-xs text-muted">{link.url_override ? "Saved link" : link.id < 0 ? "Automatic link" : "Default link"}</p>
+              </article>
             );
           })}
-          {links.data?.length === 0 ? <p className="empty-state">No dashboard links are available.</p> : null}
+          {quickLinks.length === 0 ? <p className="empty-state">No running service dashboards or saved links are available.</p> : null}
         </div>
       </Panel>
-      {pendingAction ? <ConfirmDialog title={`${pendingAction.action === "stop" ? "Stop" : "Restart"} ${pendingAction.service.name}?`} description={`This sends a ${pendingAction.action} request to ${pendingAction.service.name}.`} confirmLabel={`${pendingAction.action === "stop" ? "Stop" : "Restart"} service`} onCancel={() => setPendingAction(null)} onConfirm={() => { const target = pendingAction; setPendingAction(null); void runServiceAction(target.service, target.action); }} /> : null}
+      {pendingAction ? <ConfirmDialog title={`${pendingAction.action === "stop" ? "Stop" : "Restart"} ${pendingAction.service.name}?`} description={`This sends a ${pendingAction.action} request to ${pendingAction.service.name}.`} confirmLabel={`${pendingAction.action === "stop" ? "Stop" : "Restart"} service`} onCancel={() => setPendingAction(null)} onConfirm={() => { const target = pendingAction; setPendingAction(null); void submitServiceAction(target.service, target.action); }} /> : null}
       {pendingPortSave ? <ConfirmDialog title={`Save ${pendingPortSave.name} ports?`} description="PiHomeHub will save the desired host ports. In operator-managed deployments, the running Docker bindings change only after an operator redeploys the service." confirmLabel="Save ports" onCancel={() => setPendingPortSave(null)} onConfirm={() => { const target = pendingPortSave; setPendingPortSave(null); void savePorts(target); }} /> : null}
       </div>
     </div>

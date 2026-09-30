@@ -7,7 +7,9 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
-RUN useradd --system --uid 10002 --create-home control-agent
+RUN useradd --system --uid 10002 --create-home control-agent \
+    && mkdir -p /data \
+    && chown control-agent:control-agent /data
 USER control-agent
 EXPOSE 9000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9000", "--no-server-header"]

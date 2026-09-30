@@ -24,10 +24,9 @@ PRIVILEGED_ROUTES = [
     ("PATCH", "/api/devices/1", {"name": "matrix-device"}),
     ("DELETE", "/api/devices/1", None),
     ("PATCH", "/api/services/adguard-home/ports", {"ports": {"dns": 5353}}),
-    ("POST", "/api/services/adguard-home/ports/apply", None),
-    ("POST", "/api/services/adguard-home/actions/start", None),
-    ("POST", "/api/services/adguard-home/actions/stop", None),
-    ("POST", "/api/services/adguard-home/actions/restart", None),
+    ("POST", "/api/services/adguard-home/actions/start", {"operation_id": "security-operation-0001"}),
+    ("POST", "/api/services/adguard-home/actions/stop", {"operation_id": "security-operation-0002"}),
+    ("POST", "/api/services/adguard-home/actions/restart", {"operation_id": "security-operation-0003"}),
     ("POST", "/api/tailscale/settings", {"tailnet": "example.com"}),
     ("POST", "/api/tailscale/test", None),
     ("POST", "/api/tailscale/sync", None),
@@ -246,7 +245,6 @@ async def test_recent_admin_passes_authorization_for_every_privileged_route(app)
     async_unavailable = AsyncMock(side_effect=unavailable)
     with ExitStack() as stack:
         stack.enter_context(patch("app.api.services.update_service_port_config", side_effect=unavailable))
-        stack.enter_context(patch("app.api.services.recreate_service", side_effect=unavailable))
         stack.enter_context(
             patch(
                 "app.api.services.run_service_action",
@@ -281,16 +279,17 @@ async def test_recent_authentication_and_session_rotation(app):
         finally:
             db.close()
 
-        denied = await client.post("/api/services/adguard-home/actions/start")
+        denied = await client.post("/api/services/adguard-home/actions/start", json={"operation_id": "recent-auth-denied-0001"})
         assert denied.status_code == 403
         reauth = await client.post("/api/auth/reauthenticate", json={"password": "Test-secret-123!"})
         assert reauth.status_code == 200
         assert client.cookies[get_settings().cookie_name] != old_cookie
         with patch(
-            "app.services.docker_service.request_service_action", return_value={"ok": True}
+            "app.services.docker_service.request_service_action",
+            return_value={"operation": {"operation_id": "recent-auth-operation-0001", "slug": "adguard-home", "action": "start", "state": "queued", "stage": "queued", "created_at": utc_now().isoformat(), "updated_at": utc_now().isoformat()}},
         ):
-            allowed = await client.post("/api/services/adguard-home/actions/start")
-        assert allowed.status_code == 200
+            allowed = await client.post("/api/services/adguard-home/actions/start", json={"operation_id": "recent-auth-operation-0001"})
+        assert allowed.status_code == 202
 
     db = app.state.testing_session_local()
     try:
@@ -399,9 +398,12 @@ async def test_privileged_operations_log_success_and_failure(app):
         assert created.status_code == 201
         failed = await client.delete("/api/devices/999999")
         assert failed.status_code == 404
-        with patch("app.services.docker_service.request_service_action", return_value={"ok": True}):
-            action = await client.post("/api/services/adguard-home/actions/restart")
-        assert action.status_code == 200
+        with patch(
+            "app.services.docker_service.request_service_action",
+            return_value={"operation": {"operation_id": "audit-restart-operation-0001", "slug": "adguard-home", "action": "restart", "state": "queued", "stage": "queued", "created_at": utc_now().isoformat(), "updated_at": utc_now().isoformat()}},
+        ):
+            action = await client.post("/api/services/adguard-home/actions/restart", json={"operation_id": "audit-restart-operation-0001"})
+        assert action.status_code == 202
 
     db = app.state.testing_session_local()
     try:
@@ -410,7 +412,7 @@ async def test_privileged_operations_log_success_and_failure(app):
         db.close()
     assert ("device_create", True) in events
     assert ("device_delete", False) in events
-    assert ("service_restart", True) in events
+    assert ("service_restart_submitted", True) in events
 
 
 def test_trusted_proxy_matching_supports_explicit_addresses_and_cidr():
@@ -432,8 +434,8 @@ async def test_control_agent_errors_do_not_leak_secrets_to_response_or_logs(app,
             "app.services.docker_service.request_service_action",
             side_effect=ControlAgentError("registry_password=super-secret-value"),
         ):
-            response = await client.post("/api/services/adguard-home/actions/start")
-    assert response.status_code == 502
+            response = await client.post("/api/services/adguard-home/actions/start", json={"operation_id": "agent-error-operation-0001"})
+    assert response.status_code == 503
     assert "super-secret-value" not in response.text
     assert "super-secret-value" not in caplog.text
 

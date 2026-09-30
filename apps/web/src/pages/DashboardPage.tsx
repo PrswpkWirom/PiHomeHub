@@ -9,7 +9,7 @@ import { Panel } from "../components/Panel";
 import { StatusPill } from "../components/StatusPill";
 import { useFetch } from "../hooks/useFetch";
 import type { DeviceSummary, PiStatus, ServiceLink, ServiceStatus, TailscaleDevice, TaskItem } from "../types/api";
-import { resolveServiceLinkUrl } from "../utils/serviceLinks";
+import { dashboardLinks, serviceLinkHref } from "../utils/serviceLinks";
 
 function formatUptime(seconds: number) {
   const days = Math.floor(seconds / 86_400);
@@ -37,13 +37,14 @@ export function DashboardPage() {
   const metrics = useFetch<PiStatus>("/api/system/pi", { staleTimeMs: 4_000, refetchIntervalMs: 5_000 });
   const devices = useFetch<DeviceSummary[]>("/api/devices");
   const tailscaleDevices = useFetch<TailscaleDevice[]>("/api/tailscale/devices");
-  const services = useFetch<ServiceStatus[]>("/api/services/status");
+  const services = useFetch<ServiceStatus[]>("/api/services/status", { refetchIntervalMs: 15_000 });
   const links = useFetch<ServiceLink[]>("/api/services/links");
   const tasks = useFetch<TaskItem[]>("/api/tasks");
   const [wolMessage, setWolMessage] = useState<Feedback | null>(null);
   const [waking, setWaking] = useState(false);
   const wakeLock = useRef(false);
 
+  const quickLinks = useMemo(() => dashboardLinks(links.data, services.data), [links.data, services.data]);
   const activeManual = devices.data?.filter((device) => device.status === "online") ?? [];
   const activeTailscale = tailscaleDevices.data?.filter((device) => device.sync_status === "active" && device.online) ?? [];
   const activeDevices = activeManual.length + activeTailscale.length;
@@ -187,11 +188,11 @@ export function DashboardPage() {
               className="col-span-full"
               action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void links.refetch()}>Retry dashboard links</button>}
             />
-            {links.data?.map((link, index) => {
-              const resolvedUrl = resolveServiceLinkUrl(link.url);
+            {quickLinks.map((link, index) => {
+              const resolvedUrl = serviceLinkHref(link);
               return <a key={link.slug} href={resolvedUrl} target="_blank" rel="noreferrer" className="launch-card"><span className={`launch-card__icon launch-card__icon--${index % 4}`}><Server size={20} /></span><div><p>{link.name}</p><small>{link.description ?? "Open dashboard"}</small></div><ExternalLink size={15} /></a>;
             })}
-            {links.data?.length === 0 ? <p className="empty-state col-span-full">No quick links configured yet.</p> : null}
+            {quickLinks.length === 0 ? <p className="empty-state col-span-full">No running service dashboards or saved links are available.</p> : null}
           </div>
         </Panel>
       </div>

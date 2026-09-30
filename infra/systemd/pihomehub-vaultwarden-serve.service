@@ -1,0 +1,17 @@
+[Unit]
+Description=Publish Vaultwarden through Tailscale HTTPS
+Wants=network-online.target
+Requires=tailscaled.service
+After=network-online.target tailscaled.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pihomehub-serve-vaultwarden
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=15s
+TimeoutStartSec=60s
+
+[Install]
+WantedBy=multi-user.target

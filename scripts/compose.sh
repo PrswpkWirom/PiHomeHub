@@ -13,4 +13,5 @@ if [[ ! -f "$repo_dir/infra/.env" ]]; then
   exit 1
 fi
 
+python3 "$repo_dir/scripts/generate-service-config.py"
 exec docker compose --env-file "$repo_dir/infra/.env" -f "$repo_dir/infra/docker-compose.yml" "$@"

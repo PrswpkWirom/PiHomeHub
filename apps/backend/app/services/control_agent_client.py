@@ -13,7 +13,9 @@ from app.core.config import get_settings
 
 
 class ControlAgentError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _signature(method: str, path: str, body: bytes, timestamp: str, nonce: str) -> str:
@@ -46,10 +48,8 @@ def _request(
             response = client.request(method, path, content=body, headers=headers)
     except httpx.HTTPError as exc:
         raise ControlAgentError("Control agent is unavailable") from exc
-    if response.status_code == 404:
-        raise ControlAgentError("Service or action is not allowed")
     if response.status_code >= 400:
-        raise ControlAgentError("Control agent rejected the operation")
+        raise ControlAgentError("Control agent rejected the request", status_code=response.status_code)
     try:
         payload = response.json()
     except ValueError as exc:
@@ -65,11 +65,13 @@ def get_service_snapshot() -> list[dict[str, Any]]:
     return services if isinstance(services, list) else []
 
 
-def request_service_action(slug: str, action: str) -> dict[str, Any]:
-    # The agent allows Docker lifecycle operations up to 120 seconds. Keep the
-    # caller alive slightly longer so it never reports failure while Docker is
-    # still changing state.
-    return _request("POST", f"/v1/services/{slug}/{action}", timeout=125.0)
+def request_service_action(slug: str, action: str, operation_id: str, actor_user_id: int) -> dict[str, Any]:
+    return _request("POST", f"/v1/services/{slug}/actions/{action}",
+                    json_body={"operation_id": operation_id, "actor_user_id": actor_user_id}, timeout=8.0)
+
+
+def get_service_operation(operation_id: str) -> dict[str, Any]:
+    return _request("GET", f"/v1/operations/{operation_id}")
 
 
 def request_wake_on_lan(mac_address: str, broadcast_address: str) -> None:

@@ -95,7 +95,28 @@ def _write_env_values(updates: dict[str, int], path: Path | None = None) -> None
 
 
 def _desired_ports(env_values: dict[str, str] | None = None) -> dict[str, dict[str, int]]:
-    values = env_values if env_values is not None else _read_env_file()
+    settings = get_settings()
+    if env_values is not None:
+        values = env_values
+    elif settings.service_config_file:
+        try:
+            catalog = json.loads(Path(settings.service_config_file).read_text(encoding="utf-8"))
+            values = {}
+            for entry in catalog.get("services", []):
+                slug = entry.get("slug")
+                if slug in SERVICE_PORTS and isinstance(entry.get("ports"), dict):
+                    for key, port in entry["ports"].items():
+                        if isinstance(port, int) and not isinstance(port, bool):
+                            values[f"{slug}:{key}"] = str(port)
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail="Service configuration is temporarily unavailable") from exc
+        return {
+            slug: {definition.key: int(values.get(f"{slug}:{definition.key}", definition.default_host_port))
+                   for definition in definitions}
+            for slug, definitions in SERVICE_PORTS.items()
+        }
+    else:
+        values = _read_env_file()
     desired: dict[str, dict[str, int]] = {}
     for slug, definitions in SERVICE_PORTS.items():
         desired[slug] = {}
@@ -214,7 +235,11 @@ def _validate_desired_ports(slug: str, proposed: dict[str, int]) -> None:
 
 
 def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
-    docker_rows = docker_service._docker_rows()
+    try:
+        snapshot = docker_service.get_service_snapshot()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Docker service status is temporarily unavailable") from exc
+    docker_rows = docker_service._docker_rows(snapshot)
     desired = _desired_ports()
     configs: list[ServicePortConfigRead] = []
 
@@ -223,8 +248,9 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
         if not definitions:
             continue
 
-        state, detail = docker_rows.get(slug, ("missing", "Container not found"))
-        running = _docker_running_ports(slug)
+        runtime = docker_rows.get(slug, docker_service.ServiceRuntimeSnapshot("unknown", None, "Status unavailable", (), None))
+        state, detail = runtime.status, runtime.detail
+        running = docker_service.get_running_ports(slug, snapshot)
         ports: list[ServicePortRead] = []
         has_pending = False
 
@@ -259,6 +285,7 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
                 slug=slug,
                 name=slug.replace("-", " ").title(),
                 status=state,
+                host_ip=next((item.get("host_ip") for item in snapshot if item.get("slug") == slug), None),
                 detail=detail,
                 has_pending_port_change=has_pending,
                 deployment_mode="operator",
@@ -269,7 +296,7 @@ def get_service_port_configs(_: Session) -> list[ServicePortConfigRead]:
                     for running_port in port.running_host_ports.values()
                 ),
                 operator_command=(
-                    "docker compose -f infra/docker-compose.yml --profile home-services "
+                    f"./scripts/compose.sh --profile {'mqtt' if slug == 'mosquitto' else 'home-services'} "
                     f"up -d --no-deps --force-recreate {slug}"
                 ),
                 ports=ports,

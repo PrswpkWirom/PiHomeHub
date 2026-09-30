@@ -1,166 +1,188 @@
 # PiHomeHub
 
-PiHomeHub is a private home dashboard and service control center for a Raspberry Pi or Linux home server. It brings devices, Docker services, host metrics, household tasks, and infrastructure notifications into one authenticated interface.
+PiHomeHub is a private dashboard for your Raspberry Pi or Linux home server. Use it to check your server, manage Docker services, wake devices, save useful links, and track household tasks.
 
-Use the production Docker Compose stack for an always-on server. The application runtime is already containerized; Python and Node.js are needed on the host only for direct development.
+Open it from your home network or through Tailscale. Each person signs in with a PiHomeHub account.
 
-## Features
+## What you can do
 
-- **Overview:** host CPU, memory, root disk and temperature, devices, service status, and quick links.
-- **Devices:** manual inventory, debounced reachability, Wake-on-LAN, and manual Tailscale synchronization.
-- **Services:** Docker state and optional health status; restricted start, stop, and restart for AdGuard Home, Gitea, Uptime Kuma, Vaultwarden, and Mosquitto.
-- **Notifications:** persistent per-account inboxes, unread Bell, filtered history, explicit read actions, and personal delivery preferences. The backend monitors infrastructure every 30 seconds while the browser is closed.
-- **Planner:** household and maintenance tasks. Deadline notifications are deferred until tasks have real due dates.
-- **Accounts:** administrator/viewer roles, personal passwords and sessions, recent authentication for sensitive actions, and audit history.
+| Page | What it does |
+|---|---|
+| Overview | Shows server health, devices, service status, and dashboard links |
+| Devices | Keeps a device inventory, checks reachability, and sends Wake-on-LAN packets |
+| Services | Creates, starts, stops, and restarts supported containers; opens their dashboards |
+| Planner | Tracks household and maintenance tasks |
+| Notifications | Shows infrastructure alerts and recovery events, with per-account read status |
+| Settings | Manages your account, sessions, and notification preferences |
 
-PiHomeHub is intended for trusted LAN or Tailscale access. Each person signs in with a local PiHomeHub account. The simple deployment opens directly at `http://<server-tailscale-ip>`; Tailscale Serve and browser certificates are optional. Both machines must be connected to the same tailnet.
+The backend checks infrastructure even when your browser is closed. It cannot send notifications when the server itself is down. Planner deadline notifications are not yet supported.
 
-## What runs where
+## Add or change dashboard links
 
-| Component | Deployment | Responsibility |
-|---|---|---|
-| Web | Container | Built React app served by Caddy; no Vite development server in production |
-| Backend | Container | FastAPI, SQLite access, notification monitor, authentication, and integrations |
-| Control agent | Private container | Allowlisted Docker status/start/stop/restart; the only application container with the Docker socket |
-| Wake-on-LAN agent | Container with host networking | Signed requests and LAN broadcast packets |
-| Ingress | Container | Caddy; direct HTTP on the chosen private IP, with HTTPS available as a separate access mode |
-| SQLite | Persistent Docker volume | Accounts, sessions, devices, tasks, audit events, and notification history/state |
-| Tailscale | Host service | Private remote access and persistent host identity |
-| Docker and host metrics | Host | Container runtime; narrowly mounted read-only memory, thermal, network, and root-filesystem probes |
-| Backups | Host script and optional timer | Verified snapshots and private configuration bundles |
+On **Services**, find the **Dashboards** panel:
 
-SQLite does not need its own container. The notification monitor runs inside the backend. This single-host deployment does not require Redis, a task queue, Kubernetes, or an additional proxy.
+1. Click **Add quick link** to add another service, such as your aircon web page.
+2. Enter a name and the complete URL, including `http://` or `https://`, any port, and any path.
+3. Click **Save link**.
 
-```text
-Browser -> encrypted Tailscale connection -> server Tailscale IP:80 -> Caddy
-                                                                      |-> web
-                                                                      |-> backend -> SQLite
-                                                                                  |-> host metrics
-                                                                                  |-> agents
-```
+To change an existing link, click **Edit** beside it. Every card shows its current URL. Saved URLs take priority over automatically detected addresses and are also used on Overview. Only administrators can add or edit links.
 
-## Stable home-server setup
+For Vaultwarden, enter its working **HTTPS** URL. Saving an HTTPS address changes the link; it does not configure HTTPS on the service. See the setup below.
 
-Start with a maintained 64-bit Linux installation, such as [Raspberry Pi OS Lite (64-bit)](https://www.raspberrypi.com/documentation/computers/os.html). Use reliable power and cooling, a wired connection where practical, and a DHCP reservation for the server. An SSD is useful for persistent service data; verify the actual disk and power arrangement before enabling the optional services. The core app and the optional Git/password/DNS services have different resource needs; no load or capacity guarantee is implied.
+## First-time server setup
 
-Install Docker Engine, Docker Compose v2, Git, and Tailscale on the host. Compose 2.24.4 or newer is required by the development override. See [Docker installation](https://docs.docker.com/engine/install/) and [Tailscale installation](https://tailscale.com/docs/install/linux).
+Run these commands from the repository folder. For an existing installation, use [Update the app](#update-the-app).
 
-Check `docker compose version` and `docker buildx version` before continuing. If they are missing and Docker came from Ubuntu's `docker.io` package, install `sudo apt install docker-compose-v2 docker-buildx`. If Docker came from Docker's official repository, install `sudo apt install docker-compose-plugin docker-buildx-plugin` instead. An `unknown flag: --env-file` error from the wrapper usually means the Compose plugin is missing.
+### 1. Install the prerequisites
 
-Join the server to your tailnet with `sudo tailscale up` before selecting its Tailscale address.
+The host needs:
 
-Run the commands below from the repository root. `scripts/compose.sh` always selects the production file and `infra/.env`.
+- Docker Engine with Docker Compose v2 and Buildx
+- Git, Python 3, and OpenSSL; Python runs the service-configuration helper
+- Tailscale, connected to your tailnet
 
-1. Create configuration and generate two independent secrets:
+The application runs in containers. Node.js and backend Python dependencies are only needed for direct local development.
 
-   ```bash
-   cp infra/.env.example infra/.env
-   chmod 600 infra/.env
-   openssl rand -hex 32
-   openssl rand -hex 32
-   ```
-
-   Edit `infra/.env`: put different generated values in `PIHOMEHUB_SECRET_KEY` and `PIHOMEHUB_CONTROL_AGENT_SECRET`. For direct access, get the server address with `tailscale ip -4` and replace the example IP in these settings:
-
-   ```env
-   PIHOMEHUB_ACCESS_MODE=private-http
-   PIHOMEHUB_INGRESS_BIND_ADDRESS=100.108.62.50
-   PIHOMEHUB_HTTPS_BIND_ADDRESS=127.0.0.1
-   PIHOMEHUB_HTTP_PORT=80
-   PIHOMEHUB_PUBLIC_BASE_URL=http://100.108.62.50
-   PIHOMEHUB_ALLOWED_ORIGINS=http://100.108.62.50
-   ```
-
-   `100.108.62.50` is this development machine's address; use your own server's address when deploying elsewhere. Set `DOCKER_GID` to the result of `stat -c "%g" /var/run/docker.sock`. Keep the existing Compose project name when upgrading; changing it can select a different database volume.
-
-2. Prepare the empty host root-disk probe and enable host services at boot:
-
-   ```bash
-   sudo ./scripts/prepare-host-metrics.sh
-   sudo systemctl enable --now docker tailscaled
-   ```
-
-   If you customize `PIHOMEHUB_HOST_ROOT_METRICS_PATH`, pass that same path to the preparation script. The [deployment guide](docs/production-deployment.md) explains host mounts and validation.
-
-3. Build and initialize the database before starting the application:
-
-   ```bash
-   ./scripts/compose.sh config -q
-   ./scripts/compose.sh build backend control-agent wol-agent web
-   ./scripts/compose.sh run --rm --no-deps backend alembic upgrade head
-   ./scripts/compose.sh run --rm --no-deps backend python -m app.cli create-admin
-   ./scripts/compose.sh up -d --wait --wait-timeout 180
-   ```
-
-   Choose a unique administrator password at the secure CLI prompt. Existing installations should follow the [backup and upgrade procedure](docs/production-deployment.md#upgrades), rather than creating another first administrator.
-
-4. Open the hub from another machine connected to your tailnet:
-
-   ```text
-   http://100.108.62.50
-   ```
-
-   Substitute your server's Tailscale IP. Port 80 is implicit, so no port suffix is needed. Sign in with the administrator created above. Direct access requires no Serve command, DNS setup, or certificate installation. Tailnet access controls still decide which machines may connect. For trusted LAN-only access, use the server's LAN IP in the same three address settings. HTTPS/Tailscale Serve remains an optional mode in the [deployment guide](docs/production-deployment.md#optional-https-and-tailscale-serve).
-
-5. Take a verified backup and arrange daily backups to storage that survives loss of the Pi:
-
-   ```bash
-   ./scripts/backup.sh /path/to/private/backup-storage
-   ```
-
-   The snapshot contains the PiHomeHub database, configuration, secrets, source revision, and checksums. It does not include the optional services data. Instructions for the supplied daily timer, off-device copies, retention, and a restore drill are in [Backups and restore](docs/production-deployment.md#backups-and-restore).
-
-The Compose stack includes health checks, startup readiness checks, graceful shutdown, restart policies, and container log rotation. Docker restarts exited containers with `unless-stopped`; a health check alone does not restart a hung container. Use a monitor outside this Pi to detect a whole-server outage. PiHomeHub cannot produce notifications while its own backend or host is down.
-
-### Access settings
-
-`PIHOMEHUB_INGRESS_BIND_ADDRESS` chooses the local IP for HTTP; `PIHOMEHUB_HTTPS_BIND_ADDRESS` independently chooses the HTTPS interface (loopback in the direct-access example). The bind address it has no scheme or port. `PIHOMEHUB_PUBLIC_BASE_URL` is the full URL you open, including `http://`. `PIHOMEHUB_ALLOWED_ORIGINS` lists browser addresses trusted for writes; usually it is identical to the public URL. Include `:<port>` in both URL fields when using a nonstandard port.
-
-`private-http` uses production accounts, audit logs, permissions, and CSRF protection with cookies that work over HTTP. It accepts only private-IP/localhost HTTP origins. For Tailscale clients, the transport between machines is [encrypted by Tailscale](https://tailscale.com/security). On a plain LAN, HTTP has no transport encryption; choose HTTPS for networks where that matters. Browser PWA/service-worker features require HTTPS; the regular dashboard works in either mode.
-
-After changing access settings, run:
+Check your installation:
 
 ```bash
+docker compose version
+docker buildx version
+sudo tailscale up
+tailscale ip -4
+```
+
+If Docker's Compose or Buildx plugin is missing, follow the package instructions in the [deployment guide](docs/production-deployment.md).
+
+### 2. Configure your server address and secrets
+
+```bash
+cp infra/.env.example infra/.env
+chmod 600 infra/.env
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Edit `infra/.env`. Put the two different generated secrets in `PIHOMEHUB_SECRET_KEY` and `PIHOMEHUB_CONTROL_AGENT_SECRET`.
+
+For private access through Tailscale, use the settings below. Replace **every** example IP with the address printed by `tailscale ip -4`:
+
+```env
+PIHOMEHUB_ACCESS_MODE=private-http
+PIHOMEHUB_BIND_ADDRESS=100.65.234.44
+PIHOMEHUB_INGRESS_BIND_ADDRESS=100.65.234.44
+PIHOMEHUB_HTTPS_BIND_ADDRESS=127.0.0.1
+PIHOMEHUB_HTTP_PORT=80
+PIHOMEHUB_PUBLIC_BASE_URL=http://100.65.234.44
+PIHOMEHUB_ALLOWED_ORIGINS=http://100.65.234.44
+```
+
+Set `DOCKER_GID` to the number printed by:
+
+```bash
+stat -c '%g' /var/run/docker.sock
+```
+
+Keep `infra/.env` private. The bind addresses contain only an IP; the public URL and allowed origin include the scheme and any nonstandard port.
+
+### 3. Build and start PiHomeHub
+
+```bash
+sudo ./scripts/prepare-host-metrics.sh
+sudo systemctl enable --now docker tailscaled
+./scripts/compose.sh config -q
+./scripts/compose.sh build backend control-agent wol-agent web
+./scripts/compose.sh run --rm --no-deps backend alembic upgrade head
+./scripts/compose.sh run --rm --no-deps backend python -m app.cli create-admin
 ./scripts/compose.sh up -d --wait --wait-timeout 180
 ```
 
-Sign in again when switching access modes. Existing accounts and database records remain intact.
+The administrator command asks you to choose a password. The migration command prepares the database before the app starts.
 
-## Daily operations
+Open `http://<your-server-tailscale-ip>` from a device on the same tailnet and sign in. This setup does not require Tailscale Serve for PiHomeHub. Docker starts the containers again after a reboot unless you explicitly stopped them.
+
+For LAN access, HTTPS for PiHomeHub, host storage, and deployment checks, see the [production deployment guide](docs/production-deployment.md).
+
+## Manage supported services
+
+PiHomeHub supports AdGuard Home, Gitea, Uptime Kuma, Vaultwarden, and Mosquitto.
+
+On **Services**, click **Create and start** for a service that is not installed. PiHomeHub downloads its image and shows progress. Installed services show the actions available for their current state. You can reload the page and check progress again.
+
+Service ports are configured in `infra/.env` and shown as read-only in the production UI. A dashboard URL override does not change a container's port. Keep the Compose project name `infra` when upgrading so existing service volumes are reused.
+
+Mosquitto needs credentials and an access-control list before it can start. Follow [MQTT setup](docs/mqtt-security.md). Optional services need their own accounts and data backups.
+
+## Give Vaultwarden HTTPS on every boot
+
+The included script publishes Vaultwarden through Tailscale at your server's HTTPS tailnet hostname.
+
+The script currently targets `http://100.65.234.44:3004`. If your server has a different IP or Vaultwarden port, edit `scripts/serve-vaultwarden.sh` before installing it.
+
+Run once:
 
 ```bash
-./scripts/compose.sh ps
-./scripts/compose.sh logs --tail 100 backend control-agent wol-agent caddy
-./scripts/compose.sh restart backend
-./scripts/backup.sh /path/to/private/backup-storage
+sudo bash scripts/install-vaultwarden-serve.sh
 ```
 
-Enable automatic OS security updates according to your host policy, keep Docker/Tailscale current, and review pinned application images and dependency advisories before upgrading. Reboot-test the server, verify backup restores, and periodically check free space. Notification/audit history currently has no automatic retention policy. Keep one backend instance using the local SQLite volume; the persisted monitor lock prevents duplicate collectors on that database.
+Enter your Linux sudo password when prompted. The installer starts the configuration immediately and enables a systemd service to run it after Tailscale starts on each boot. Failed attempts retry automatically.
 
-A stable first deployment should pass the [acceptance checks](docs/production-deployment.md#acceptance-checks): direct browser access, host reboot, metrics source, browser-closed outage/recovery, backend restart persistence, independent account badges, and backup restoration. This repository provides a single-host deployment; availability still depends on the Pi, its storage, power, and network.
-
-## Optional home services
-
-Enable optional services deliberately after the core dashboard is working:
+Each run performs:
 
 ```bash
-./scripts/compose.sh --profile home-services up -d
+tailscale serve reset
+tailscale serve --bg --yes --https=443 http://100.65.234.44:3004
 ```
 
-The `home-services` profile enables AdGuard Home, Gitea, Uptime Kuma, and Vaultwarden. Mosquitto uses a separate `mqtt` profile:
+**This replaces all existing Tailscale Serve routes on the server.** Port 443 will serve Vaultwarden. The `--bg` option keeps the route active after the script finishes.
+
+Check the result:
 
 ```bash
-./scripts/create-mqtt-credentials.sh sensor-bedroom
-./scripts/compose.sh --profile mqtt up -d
+tailscale serve status
+systemctl status pihomehub-vaultwarden-serve.service
 ```
 
-Follow [MQTT security](docs/mqtt-security.md) for credentials and ACLs. Optional service ports default to loopback; choose trusted LAN addresses and firewall rules before using them from other machines. DNS, Git, MQTT, and password-manager data need their own backups. Configure those applications access controls and HTTPS as appropriate; the core dashboard ingress does not automatically proxy every optional service.
+Copy the HTTPS URL shown by `tailscale serve status` into Vaultwarden's dashboard link in PiHomeHub. Use that hostname instead of the numeric IP. If Tailscale asks you to enable HTTPS for your tailnet, follow its authorization link, then run:
 
-Production host-port changes are operator-managed: edit `infra/.env`, validate configuration, and recreate the affected service. The control agent starts/stops existing containers; create optional containers with Compose first.
+```bash
+sudo systemctl restart pihomehub-vaultwarden-serve.service
+```
+
+For logs or removal instructions, see the [local operations runbook](LOCAL_OPERATIONS_RUNBOOK.md#vaultwarden-https-at-boot).
+
+## Update the app
+
+Back up first, then build, migrate, and restart:
+
+```bash
+./scripts/backup.sh
+./scripts/compose.sh build backend control-agent wol-agent web
+./scripts/compose.sh run --rm --no-deps backend alembic upgrade head
+./scripts/compose.sh up -d --wait --wait-timeout 180
+```
+
+Apply migrations before starting the new backend. Updates do not automatically install optional services. Do not use `docker compose down -v`: it deletes persistent volumes.
+
+## Backups and troubleshooting
+
+| Task | Command |
+|---|---|
+| Check containers | `./scripts/compose.sh ps` |
+| Read recent logs | `./scripts/compose.sh logs --tail 100 backend control-agent web caddy` |
+| Restart the backend | `./scripts/compose.sh restart backend` |
+| Back up locally | `./scripts/backup.sh` |
+| Back up elsewhere | `./scripts/backup.sh /path/to/private/backup-storage` |
+
+Backups include the PiHomeHub database, control-agent operation history, private configuration, source revision, and checksums. They contain secrets. Store a copy away from this server. They do **not** include the optional services' data.
+
+If an update is not visible, refresh the browser with **Ctrl+Shift+R**. If saving fails after you change the app's access URL, check `PIHOMEHUB_PUBLIC_BASE_URL` and `PIHOMEHUB_ALLOWED_ORIGINS`, redeploy, and sign in again.
+
+See [Backups and restore](docs/production-deployment.md#backups-and-restore) for scheduled backups and recovery instructions.
 
 ## Local development
 
-Direct development requires Python 3.12+, Node.js 24 LTS and npm, and separate development configuration. It sends Wake-on-LAN directly from the host.
+Direct development needs Python 3.12+ and Node.js 24 LTS with npm:
 
 ```bash
 cp apps/backend/.env.example apps/backend/.env
@@ -172,46 +194,31 @@ npm ci --prefix apps/web
 ./scripts/run-dev.sh
 ```
 
-Open <http://localhost:5173>. Run migrations again after schema changes; `run-dev.sh` starts servers without applying migrations. Use unique credentials in each environment.
+Open <http://localhost:5173>. Use separate development credentials and configuration. The development helper does not apply migrations automatically. For Docker development, see [Development setup](docs/setup.md) and the [local operations runbook](LOCAL_OPERATIONS_RUNBOOK.md).
 
-For Docker development, use both Compose files explicitly:
-
-```bash
-cp infra/.env.example infra/.env
-docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml build
-docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend alembic upgrade head
-docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps backend python -m app.cli create-admin
-docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up
-```
-
-The override uses Vite, source mounts, development secrets, and published 5173/8000 ports. Its `backend-dev-data` volume is separate from production `backend-data`. Older development containers stored `/data` in their writable container layer; export or copy that database before recreating them with this version. Direct Python development uses a third, local database. Use production configuration for the always-on home server.
-
-## Repository and verification
-
-- `apps/backend`: FastAPI, SQLAlchemy, Alembic, collectors, notifications, and SQLite backup CLI.
-- `apps/control_agent`: Docker control and Wake-on-LAN agents.
-- `apps/web`: React, TypeScript, TailwindCSS, and PWA shell.
-- `infra`: production/development Compose, Caddy, MQTT, and optional backup timer.
-- `scripts`: production Compose wrapper, backups, host-metric preparation, and development helpers.
+Run checks:
 
 ```bash
 PYTHONPATH=apps/backend .venv/bin/pytest apps/backend/app/tests
 npm --prefix apps/web test -- --run
 npm --prefix apps/web run build
 ./scripts/compose.sh config -q
-./scripts/compose.sh build backend control-agent wol-agent web
 ```
 
-The test environment needs the Compose v2 plugin. Production validation needs a configured `infra/.env`; keep real secrets out of source control. The build images pin exact tags/digests, and frontend dependencies use the committed lockfile.
+## Project layout and further reading
 
-## Documentation
+| Folder | Contents |
+|---|---|
+| `apps/web` | React frontend |
+| `apps/backend` | API, database migrations, authentication, and notification monitoring |
+| `apps/control_agent` | Docker control and Wake-on-LAN agents |
+| `infra` | Docker Compose, Caddy, MQTT, and systemd units |
+| `scripts` | Setup, deployment, backups, and development helpers |
 
-- [Production deployment and operations](docs/production-deployment.md)
-- [Development setup](docs/setup.md)
+- [Production deployment](docs/production-deployment.md)
 - [Architecture](docs/architecture.md)
 - [Security](docs/security.md)
-- [Authentication and sessions](docs/authentication.md)
-- [Authorization matrix](docs/authorization-matrix.md)
+- [Authentication](docs/authentication.md) and [permissions](docs/authorization-matrix.md)
 - [Docker control agent](docs/control-agent.md)
 - [MQTT security](docs/mqtt-security.md)
 - [Tailscale Serve](docs/tailscale-serve.md)

@@ -140,6 +140,12 @@ export type ServiceStatus = {
   status: string;
   health_status?: "healthy" | "unhealthy" | "starting" | null;
   detail: string;
+  host_ip?: string | null;
+  host_ports?: Record<string, number>;
+  url?: string | null;
+  setup_required?: boolean;
+  operation?: ServiceOperation | null;
+  recent_operations?: ServiceOperation[];
 };
 
 export type NotificationSeverity = "info" | "success" | "warning" | "critical";
@@ -172,9 +178,23 @@ export type NotificationPreferences = {
   tailscale_sync: boolean;
 };
 
+export type ServiceOperation = {
+  operation_id: string;
+  slug: string;
+  action: string;
+  state: "queued" | "running" | "verifying" | "succeeded" | "failed" | "unknown";
+  stage: string;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+  error_code: string | null;
+  message: string | null;
+};
+
 export type ServiceCapability = {
   slug: string;
   actions: string[];
+  setup_required?: boolean;
 };
 
 export type ServiceActionResult = {
@@ -182,6 +202,7 @@ export type ServiceActionResult = {
   action: string;
   ok: boolean;
   message: string;
+  operation?: ServiceOperation;
 };
 
 export type ServicePort = {
@@ -201,6 +222,7 @@ export type ServicePortConfig = {
   name: string;
   status: string;
   detail: string;
+  host_ip?: string | null;
   has_pending_port_change: boolean;
   deployment_mode: "operator";
   configuration_mode: "web" | "operator";
@@ -210,6 +232,7 @@ export type ServicePortConfig = {
 };
 
 export type ServiceLink = {
+  url_override?: boolean;
   id: number;
   name: string;
   slug: string;

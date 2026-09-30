@@ -17,6 +17,7 @@ from app.models.notification import MonitorState
 from app.services.control_agent_client import get_service_snapshot
 from app.services.device_service import _ping_host
 from app.services.docker_service import CONTROLLABLE_SERVICES
+from app.services.audit_service import record_audit_event
 from app.services.notification_service import create_notification, resolve_incident
 from app.services.system_service import get_pi_status
 
@@ -165,56 +166,61 @@ def _service_sample(db: Session, slug: str, raw: dict[str, Any], now: datetime, 
     if state.get("stable") in {"exited", "dead"}:
         state["stable"] = "stopped"
     state["last_cycle"] = now.isoformat()
+    operations = raw.get("operations") if isinstance(raw.get("operations"), list) else []
+    if not operations and isinstance(raw.get("operation"), dict):
+        operations = [raw["operation"]]
+    operation_state = _state(db, f"service-operation:{slug}")
+    notified_ids = operation_state.get("notified_ids", [])
+    if not isinstance(notified_ids, list):
+        notified_ids = []
+    latest_operation_id = str(raw.get("operation", {}).get("operation_id", "")) if isinstance(raw.get("operation"), dict) else ""
+    for operation in operations:
+        if not isinstance(operation, dict) or operation.get("state") not in {"succeeded", "failed"}:
+            continue
+        operation_id = str(operation.get("operation_id", ""))
+        if not operation_id or operation_id in notified_ids:
+            continue
+        action = str(operation.get("action", "service"))
+        success = operation.get("state") == "succeeded"
+        title = f"{slug.replace('-', ' ').title()} {action} {'completed' if success else 'failed'}"
+        message = (f"The requested {action} operation completed and was verified." if success
+                   else str(operation.get("message") or f"The requested {action} operation failed."))
+        _notify(db, event_key=f"service-operation:{operation_id}",
+                event_type="service_action_completed" if success else "service_failure",
+                category="service", severity="info" if success and action == "stop" else "success" if success else "warning",
+                title=title, message=message, source_type="service", source_id=slug,
+                target_path="/services", metadata={"operation_id": operation_id, "action": action}, now=now)
+        record_audit_event(db, event=f"service_{action}_{'completed' if success else 'failed'}",
+                           success=success, actor_user_id=operation.get("actor_user_id"), target_type="service",
+                           target_identifier=slug, metadata={"operation_id": operation_id}, commit=False)
+        notified_ids.append(operation_id)
+    operation_state["notified_ids"] = notified_ids[-256:]
+    _save_state(db, f"service-operation:{slug}", operation_state, now)
+    current_operation = raw.get("operation") if isinstance(raw.get("operation"), dict) else None
+    failed_operation_id = (str(current_operation.get("operation_id", ""))
+                           if current_operation and current_operation.get("state") == "failed" else "")
+    if observed == "running":
+        state.pop("handled_action_failure_id", None)
+    elif failed_operation_id:
+        state["handled_action_failure_id"] = failed_operation_id
+    suppress_failure_notification = bool(
+        failed_operation_id and state.get("handled_action_failure_id") == failed_operation_id
+    )
+    if (current_operation and current_operation.get("operation_id") == latest_operation_id
+            and current_operation.get("state") == "succeeded"):
+        action = str(current_operation.get("action", "service"))
+        state["stable"] = "stopped" if action == "stop" else "running"
+        state["ever_running"] = action != "stop" or bool(state.get("ever_running"))
+        state["candidate"] = None
+        state["count"] = 0
+        state.pop("pending_action", None)
+        _resolve_active_events(db, state, now)
+        _save_state(db, key, state, now)
     if observed == "unknown":
-        if isinstance(state.get("pending_action"), dict):
-            state["pending_action"]["successes"] = 0
         state["candidate"] = None
         state["count"] = 0
         _save_state(db, key, state, now)
         return
-    pending = state.get("pending_action")
-    if isinstance(pending, dict):
-        requested_at = datetime.fromisoformat(pending.get("requested_at", now.isoformat()))
-        if now - requested_at <= timedelta(minutes=3):
-            action = pending.get("action", "service")
-            if action == "restart" and observed != "running":
-                pending["saw_transition"] = True
-            expected_observed = (
-                observed in {"stopped", "exited", "dead"}
-                if action == "stop"
-                else observed == "running"
-            )
-            if expected_observed and (action != "restart" or pending.get("saw_transition")):
-                pending["successes"] = int(pending.get("successes", 0)) + 1
-                if pending["successes"] >= settings.notification_recovery_successes:
-                    state["stable"] = "stopped" if action == "stop" else "running"
-                    state["ever_running"] = observed == "running" or state.get("ever_running", False)
-                    state.pop("pending_action", None)
-                    state["candidate"] = None
-                    state["count"] = 0
-                    _resolve_active_events(db, state, now)
-                    service_name = slug.replace("-", " ").title()
-                    action_title = {"start": "started", "stop": "stopped", "restart": "recovered"}.get(action, "updated")
-                    _notify(db, event_key=f"service-action-completed:{slug}:{pending.get('id')}",
-                        event_type="service_action_completed", category="service",
-                        severity="info" if action == "stop" else "success",
-                        title=f"{service_name} {action_title}",
-                        message=f"The requested {action} action completed successfully.",
-                        source_type="service", source_id=slug, target_path="/services", now=now)
-                _save_state(db, key, state, now)
-                return
-            pending["successes"] = 0
-            state["candidate"] = None
-            state["count"] = 0
-            _save_state(db, key, state, now)
-            return
-        timed_out = state.pop("pending_action", None)
-        if timed_out:
-            _notify(db, event_key=f"service-action-failed:{slug}:{timed_out.get('id')}",
-                event_type="service_failure", category="service", severity="warning",
-                title=f"{slug.replace('-', ' ').title()} action not confirmed",
-                message=f"The requested {timed_out.get('action', 'service')} action was not confirmed within three minutes.",
-                source_type="service", source_id=slug, target_path="/services", now=now)
     if observed == "missing" and not state.get("ever_running"):
         _save_state(db, key, state, now)
         return
@@ -251,11 +257,12 @@ def _service_sample(db: Session, slug: str, raw: dict[str, Any], now: datetime, 
                 event_key = _new_incident(state, f"service-failure:{slug}")
                 _record_active_event(state, event_key)
                 state["active_severity"] = severity
-                _notify(db, event_key=event_key, event_type="service_failure", category="service",
-                    severity=severity,
-                    title=f"{service_name} {'health check failed' if unhealthy else 'stopped'}",
-                    message=f"{service_name} has remained {observed} for three checks.",
-                    source_type="service", source_id=slug, target_path="/services", now=now)
+                if not suppress_failure_notification:
+                    _notify(db, event_key=event_key, event_type="service_failure", category="service",
+                        severity=severity,
+                        title=f"{service_name} {'health check failed' if unhealthy else 'stopped'}",
+                        message=f"{service_name} has remained {observed} for three checks.",
+                        source_type="service", source_id=slug, target_path="/services", now=now)
         elif old in {"unhealthy", "exited", "dead", "stopped", "missing", "starting"} and observed == "running":
             _resolve_active_events(db, state, now)
             event_key = _new_incident(state, f"service-recovered:{slug}")

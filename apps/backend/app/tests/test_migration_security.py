@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -19,7 +20,7 @@ def test_security_migration_hashes_legacy_session_and_preserves_user(tmp_path):
         }
     )
     subprocess.run(
-        [str(root / ".venv" / "bin" / "alembic"), "upgrade", "0001_initial"],
+        [sys.executable, "-m", "alembic", "upgrade", "0001_initial"],
         cwd=backend,
         env=env,
         check=True,
@@ -40,7 +41,7 @@ def test_security_migration_hashes_legacy_session_and_preserves_user(tmp_path):
     connection.close()
 
     subprocess.run(
-        [str(root / ".venv" / "bin" / "alembic"), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=backend,
         env=env,
         check=True,
@@ -79,7 +80,7 @@ def test_production_database_without_admin_fails_closed(tmp_path):
     )
     result = subprocess.run(
         [
-            str(root / ".venv" / "bin" / "python"),
+            sys.executable,
             "-c",
             "from app.database.bootstrap import bootstrap_database; bootstrap_database()",
         ],

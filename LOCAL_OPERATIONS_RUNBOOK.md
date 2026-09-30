@@ -322,23 +322,9 @@ Back up the SQLite database volume before a production upgrade. Never use `docke
 
 ## Optional managed services
 
-Create the optional home-service containers before asking the control agent to manage them:
+Optional service containers are created from the PiHomeHub Services page. Select **Create and start** for an uninstalled service; start, stop, and restart actions report durable progress and can recover after a browser refresh. Their published ports bind to `PIHOMEHUB_BIND_ADDRESS` in `infra/.env`; use the server's fixed Tailscale IP when remote tailnet access is desired. Port values remain read-only in the production dashboard.
 
-Development:
-
-```bash
-docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
-```
-
-Production:
-
-```bash
-docker compose --env-file infra/.env -f infra/docker-compose.yml --profile home-services up -d adguard-home gitea uptime-kuma vaultwarden
-```
-
-The restricted control agent can only inspect, start, stop, or restart fixed allowlisted services. It cannot create arbitrary containers, images, mounts, or commands.
-
-Production service host port changes are operator-managed: edit `infra/.env`, validate Compose, and redeploy. The production API intentionally does not apply port changes.
+`scripts/compose.sh` refreshes the fixed, non-secret service manifest before running Compose. Keep the project name `infra` and its named volumes intact so existing service data is reused. Do not install optional service profiles automatically during a PiHomeHub update.
 
 ## MQTT
 
@@ -347,6 +333,8 @@ MQTT is disabled unless its profile is selected. Prepare credentials and ACLs fi
 ```bash
 cp infra/mosquitto/acl.example infra/mosquitto/generated/acl
 ./scripts/create-mqtt-credentials.sh sensor-bedroom
+# Confirm the ACL has a matching `user sensor-bedroom` rule.
+# The helper regenerates the non-secret readiness catalog.
 ```
 
 Start MQTT in development:
@@ -355,11 +343,7 @@ Start MQTT in development:
 docker compose --env-file infra/.env -f infra/docker-compose.yml -f infra/docker-compose.dev.yml --profile mqtt up -d mosquitto
 ```
 
-Start MQTT in production:
-
-```bash
-docker compose --env-file infra/.env -f infra/docker-compose.yml --profile mqtt up -d mosquitto
-```
+Create Mosquitto in production from the Services page after setup is complete. The agent uses the fixed MQTT Compose profile and manifest.
 
 Use a separate MQTT identity and narrow ACL for every device.
 
@@ -408,3 +392,37 @@ Expected response:
 - Never enable Tailscale Funnel.
 - Never use `docker compose down -v` unless permanent data deletion is intended.
 - Never run real service lifecycle tests against unrelated host containers.
+
+## Vaultwarden HTTPS at boot
+
+Install the boot-time Tailscale Serve configuration from the repository root:
+
+```bash
+sudo bash scripts/install-vaultwarden-serve.sh
+```
+
+This installs a root-owned script and enables `pihomehub-vaultwarden-serve.service`.
+At each boot, after Tailscale starts, it resets the existing Serve configuration
+and publishes `http://100.65.234.44:3004` on the node's Tailscale HTTPS port 443.
+This replaces all other Tailscale Serve routes on this node. The `--bg` flag keeps
+the route active after the setup script exits. Failed setup attempts retry every
+15 seconds; the Vaultwarden container must be running for requests to succeed.
+
+Check the endpoint and startup status:
+
+```bash
+tailscale serve status
+systemctl status pihomehub-vaultwarden-serve.service
+journalctl -u pihomehub-vaultwarden-serve.service -b
+```
+
+Use the HTTPS tailnet hostname printed by `tailscale serve status` for the
+Vaultwarden dashboard link. If Tailscale prompts for HTTPS enablement, complete
+the tailnet authorization, then restart the service.
+
+To disable the boot setup and remove the active Serve routes:
+
+```bash
+sudo systemctl disable --now pihomehub-vaultwarden-serve.service
+sudo tailscale serve reset
+```

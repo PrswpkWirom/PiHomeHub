@@ -45,7 +45,7 @@ services:
       PIHOMEHUB_NOTIFICATION_MEMORY_RECOVERY_PERCENT: ${PIHOMEHUB_NOTIFICATION_MEMORY_RECOVERY_PERCENT:-85}
       PIHOMEHUB_NOTIFICATION_MEMORY_DURATION_SECONDS: ${PIHOMEHUB_NOTIFICATION_MEMORY_DURATION_SECONDS:-300}
       PIHOMEHUB_NOTIFICATION_METRIC_RECOVERY_SECONDS: ${PIHOMEHUB_NOTIFICATION_METRIC_RECOVERY_SECONDS:-120}
-      PIHOMEHUB_COMPOSE_ENV_FILE: /run/pihomehub/infra.env
+      PIHOMEHUB_SERVICE_CONFIG_FILE: /run/pihomehub/services.json
       PIHOMEHUB_PORT_CONFIGURATION_MODE: operator
     expose:
       - "8000"
@@ -61,8 +61,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: ./.env
-        target: /run/pihomehub/infra.env
+        source: ./generated
+        target: /run/pihomehub
         read_only: true
         bind:
           create_host_path: false
@@ -91,8 +91,19 @@ services:
     environment:
       PIHOMEHUB_CONTROL_AGENT_SECRET: ${PIHOMEHUB_CONTROL_AGENT_SECRET:-}
       PIHOMEHUB_CONTROL_AGENT_SERVICES: adguard-home,gitea,uptime-kuma,vaultwarden,mosquitto
+      PIHOMEHUB_CONTROL_AGENT_COMPOSE_FILE: /run/pihomehub/services.compose.json
+      PIHOMEHUB_CONTROL_AGENT_CATALOG_FILE: /run/pihomehub/services.json
+      PIHOMEHUB_CONTROL_AGENT_OPERATIONS_DB: /data/operations.db
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/libexec/docker/cli-plugins/docker-compose:/usr/libexec/docker/cli-plugins/docker-compose:ro
+      - control-agent-data:/data
+      - type: bind
+        source: ./generated
+        target: /run/pihomehub
+        read_only: true
+        bind:
+          create_host_path: false
     group_add:
       - "${DOCKER_GID:-999}"
     healthcheck:
@@ -179,9 +190,9 @@ services:
     container_name: adguard-home
     profiles: [home-services]
     ports:
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_WEB_PORT:-3001}:3000"
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_DNS_PORT:-53}:53/tcp"
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${ADGUARD_DNS_PORT:-53}:53/udp"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${ADGUARD_WEB_PORT:-3001}:80"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${ADGUARD_DNS_PORT:-53}:53/tcp"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${ADGUARD_DNS_PORT:-53}:53/udp"
     volumes:
       - adguard-work:/opt/adguardhome/work
       - adguard-conf:/opt/adguardhome/conf
@@ -196,8 +207,8 @@ services:
       USER_UID: "1000"
       USER_GID: "1000"
     ports:
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${GITEA_HTTP_PORT:-3002}:3000"
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${GITEA_SSH_PORT:-2222}:22"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${GITEA_HTTP_PORT:-3002}:3000"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${GITEA_SSH_PORT:-2222}:22"
     volumes:
       - gitea-data:/data
     restart: unless-stopped
@@ -208,7 +219,7 @@ services:
     container_name: uptime-kuma
     profiles: [home-services]
     ports:
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${UPTIME_KUMA_HTTP_PORT:-3003}:3001"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${UPTIME_KUMA_HTTP_PORT:-3003}:3001"
     volumes:
       - uptime-kuma-data:/app/data
     restart: unless-stopped
@@ -219,7 +230,7 @@ services:
     container_name: vaultwarden
     profiles: [home-services]
     ports:
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${VAULTWARDEN_HTTP_PORT:-3004}:80"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${VAULTWARDEN_HTTP_PORT:-3004}:80"
     volumes:
       - vaultwarden-data:/data
     restart: unless-stopped
@@ -230,7 +241,7 @@ services:
     container_name: mosquitto
     profiles: [mqtt]
     ports:
-      - "${PIHOMEHUB_BIND_ADDRESS:-127.0.0.1}:${MOSQUITTO_MQTT_PORT:-1883}:1883"
+      - "${PIHOMEHUB_BIND_ADDRESS:-100.65.234.44}:${MOSQUITTO_MQTT_PORT:-1883}:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/generated:/mosquitto/config/generated:ro
@@ -261,3 +272,4 @@ volumes:
   vaultwarden-data:
   mosquitto-data:
   mosquitto-log:
+  control-agent-data:

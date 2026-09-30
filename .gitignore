@@ -319,3 +319,5 @@ __marimo__/
 AGENTS.md
 DESIGN.md
 #/LOCAL_OPERATIONS_RUNBOOK.md
+
+infra/generated/

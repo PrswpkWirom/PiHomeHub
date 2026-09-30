@@ -12,6 +12,22 @@ from app.models.tailscale_device import TailscaleDevice
 from app.models.user import AppSetting
 
 
+def _services_snapshot(status="missing", port_bindings=None):
+    port_bindings = port_bindings or {}
+    slugs = ("adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden")
+    return [{"slug": slug, "status": status, "detail": "Container not installed" if status == "missing" else status.title(),
+             "health_status": None, "ports": port_bindings.get(slug, []), "started_at": None,
+             "host_ip": "100.64.1.2", "host_ports": {}, "url": None,
+             "setup_required": slug == "mosquitto", "operation": None} for slug in slugs]
+
+
+def _service_operation(slug="adguard-home", action="restart", operation_id="operation-service-0001"):
+    now = datetime.now(UTC).isoformat()
+    return {"operation_id": operation_id, "slug": slug, "action": action, "state": "queued", "stage": "queued",
+            "created_at": now, "updated_at": now, "finished_at": None, "error_code": None,
+            "message": None, "actor_user_id": 1}
+
+
 @pytest.mark.anyio
 async def test_backend_health_reports_database_failure_without_details(app):
     from sqlalchemy.exc import OperationalError
@@ -257,10 +273,10 @@ async def test_service_status_missing_container(app):
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        with patch("app.services.docker_service.get_service_snapshot", return_value=[]):
+        with patch("app.services.docker_service.get_service_snapshot", return_value=_services_snapshot()):
             response = await client.get("/api/services/status")
         assert response.status_code == 200
-        assert response.json()[0]["status"] == "unknown"
+        assert response.json()[0]["status"] == "missing"
 
 
 @pytest.mark.anyio
@@ -276,10 +292,11 @@ async def test_service_action_rejects_unknown_service_and_action(app):
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        unknown_service = await client.post("/api/services/backend/actions/stop")
+        payload = {"operation_id": "operation-unknown-service-0001"}
+        unknown_service = await client.post("/api/services/backend/actions/stop", json=payload)
         assert unknown_service.status_code == 404
 
-        unknown_action = await client.post("/api/services/adguard-home/actions/down")
+        unknown_action = await client.post("/api/services/adguard-home/actions/down", json=payload)
         assert unknown_action.status_code == 404
 
 
@@ -289,12 +306,13 @@ async def test_service_capabilities_include_all_optional_services(app):
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
 
-        response = await client.get("/api/services/capabilities")
+        with patch("app.services.docker_service.get_service_snapshot", return_value=_services_snapshot()):
+            response = await client.get("/api/services/capabilities")
 
     assert response.status_code == 200
     capabilities = {item["slug"]: item["actions"] for item in response.json()}
     assert set(capabilities) == {"adguard-home", "gitea", "mosquitto", "uptime-kuma", "vaultwarden"}
-    assert all(actions == ["start", "stop", "restart"] for actions in capabilities.values())
+    assert all(actions == ["create", "start", "stop", "restart"] for actions in capabilities.values())
 
 
 @pytest.mark.anyio
@@ -304,8 +322,7 @@ async def test_service_ports_return_defaults(app):
         assert login_response.status_code == 200
 
         with (
-            patch("app.services.service_ports.docker_service._docker_rows", return_value={}),
-            patch("app.services.service_ports._docker_running_ports", return_value={}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot()),
         ):
             response = await client.get("/api/services/ports")
 
@@ -335,7 +352,10 @@ async def test_service_port_update_writes_env_and_marks_running_service_pending(
         assert login_response.status_code == 200
 
         with (
-            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("running", "Up")}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot("running", {"adguard-home": [
+                {"container_port": port, "protocol": protocol, "host_port": host_port}
+                for (port, protocol), host_port in running_adguard.items()
+            ]})),
             patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
             patch("app.services.service_ports._host_listeners", return_value={"tcp": set(), "udp": set()}),
         ):
@@ -364,6 +384,7 @@ async def test_service_port_update_rejects_other_managed_service_running_port(ap
 
         with (
             patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot()),
             patch("app.services.service_ports._host_listeners", return_value={"tcp": {53}, "udp": {53}}),
         ):
             response = await client.patch("/api/services/mosquitto/ports", json={"ports": {"mqtt": 53}})
@@ -380,6 +401,7 @@ async def test_service_port_update_rejects_duplicate_desired_managed_port(app):
 
         with (
             patch("app.services.service_ports._docker_running_ports", return_value={}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot()),
             patch("app.services.service_ports._host_listeners", return_value={"tcp": set(), "udp": set()}),
         ):
             response = await client.patch("/api/services/vaultwarden/ports", json={"ports": {"http": 3001}})
@@ -396,6 +418,7 @@ async def test_service_port_update_rejects_non_pihomehub_host_listener(app):
 
         with (
             patch("app.services.service_ports._docker_running_ports", return_value={}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot()),
             patch("app.services.service_ports._host_listeners", return_value={"tcp": {3007}, "udp": set()}),
         ):
             response = await client.patch("/api/services/vaultwarden/ports", json={"ports": {"http": 3007}})
@@ -427,7 +450,10 @@ async def test_service_port_update_allows_same_service_current_port(app):
         assert login_response.status_code == 200
 
         with (
-            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("running", "Up")}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot("running", {"adguard-home": [
+                {"container_port": 53, "protocol": protocol, "host_port": host_port}
+                for (port, protocol), host_port in running_ports("adguard-home").items()
+            ]})),
             patch("app.services.service_ports._docker_running_ports", side_effect=running_ports),
             patch("app.services.service_ports._host_listeners", return_value={"tcp": {53}, "udp": {53}}),
         ):
@@ -446,8 +472,7 @@ async def test_service_port_apply_requires_operator_redeployment(app):
 
         response = await client.post("/api/services/adguard-home/ports/apply")
 
-        assert response.status_code == 409
-        assert "operator-controlled" in response.text
+        assert response.status_code == 404
 
 
 @pytest.mark.anyio
@@ -457,7 +482,7 @@ async def test_service_port_config_exposes_only_fixed_operator_command(app):
             "/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"}
         )
         assert login_response.status_code == 200
-        with patch("app.services.service_ports._docker_running_ports", return_value={}):
+        with patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot()):
             response = await client.get("/api/services/ports")
 
     assert response.status_code == 200
@@ -481,12 +506,18 @@ async def test_stopped_service_bindings_still_report_pending_or_applied(app):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         with (
-            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("exited", "Exited")}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot("exited", {"adguard-home": [
+                {"container_port": port, "protocol": protocol, "host_port": host_port}
+                for (port, protocol), host_port in old_bindings("adguard-home").items()
+            ]})),
             patch("app.services.service_ports._docker_running_ports", side_effect=old_bindings),
         ):
             old = await client.get("/api/services/ports")
         with (
-            patch("app.services.service_ports.docker_service._docker_rows", return_value={"adguard-home": ("exited", "Exited")}),
+            patch("app.services.service_ports.docker_service.get_service_snapshot", return_value=_services_snapshot("exited", {"adguard-home": [
+                {"container_port": port, "protocol": protocol, "host_port": host_port}
+                for (port, protocol), host_port in desired_bindings("adguard-home").items()
+            ]})),
             patch("app.services.service_ports._docker_running_ports", side_effect=desired_bindings),
         ):
             applied = await client.get("/api/services/ports")
@@ -497,6 +528,41 @@ async def test_stopped_service_bindings_still_report_pending_or_applied(app):
     assert old_adguard["has_pending_port_change"] is True
     assert applied_adguard["bindings_verified"] is True
     assert applied_adguard["has_pending_port_change"] is False
+
+
+def test_service_port_catalog_replaces_unreadable_compose_env_dependency(tmp_path, monkeypatch):
+    import json
+    from app.core.config import get_settings
+    from app.services.service_ports import _desired_ports
+
+    catalog = tmp_path / "services.json"
+    catalog.write_text(json.dumps({"project": "infra", "services": [
+        {"slug": "adguard-home", "ports": {"web": 3301, "dns": 5353}},
+        {"slug": "gitea", "ports": {"http": 3302, "ssh": 2322}},
+        {"slug": "uptime-kuma", "ports": {"http": 3303}},
+        {"slug": "vaultwarden", "ports": {"http": 3304}},
+        {"slug": "mosquitto", "ports": {"mqtt": 1884}},
+    ]}))
+    unreadable = tmp_path / "secret.env"
+    unreadable.write_text("ADGUARD_DNS_PORT=53\n")
+    unreadable.chmod(0)
+    monkeypatch.setattr(get_settings(), "service_config_file", str(catalog))
+    monkeypatch.setattr(get_settings(), "compose_env_file", str(unreadable))
+
+    desired = _desired_ports()
+    assert desired["adguard-home"] == {"web": 3301, "dns": 5353}
+    assert desired["mosquitto"]["mqtt"] == 1884
+
+
+def test_service_port_catalog_failure_is_reported_as_unavailable(tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    from app.core.config import get_settings
+    from app.services.service_ports import _desired_ports
+
+    monkeypatch.setattr(get_settings(), "service_config_file", str(tmp_path / "missing.json"))
+    with pytest.raises(HTTPException) as error:
+        _desired_ports()
+    assert error.value.status_code == 503
 
 
 def test_default_compose_paths_support_docker_container_layout(tmp_path):
@@ -519,101 +585,56 @@ def test_default_compose_paths_support_docker_container_layout(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_service_action_calls_restricted_control_agent(app):
+async def test_service_action_returns_accepted_operation_and_preserves_idempotency_key(app):
+    operation = _service_operation(action="restart")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
         assert login_response.status_code == 200
-
-        with patch(
-            "app.services.docker_service.request_service_action",
-            return_value={"ok": True, "slug": "adguard-home", "action": "start"},
-        ) as control_request:
-            response = await client.post("/api/services/adguard-home/actions/start")
-
-        assert response.status_code == 200
-        assert response.json()["ok"] is True
-        assert response.json()["slug"] == "adguard-home"
-        control_request.assert_called_once_with("adguard-home", "start")
+        with patch("app.services.docker_service.request_service_action", return_value={"operation": operation}) as request:
+            response = await client.post("/api/services/adguard-home/actions/restart", json={"operation_id": operation["operation_id"]})
+    assert response.status_code == 202
+    assert response.json()["operation"]["operation_id"] == operation["operation_id"]
+    request.assert_called_once_with("adguard-home", "restart", operation["operation_id"], 1)
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("slug", ["gitea", "uptime-kuma", "mosquitto"])
-async def test_service_action_calls_control_agent_for_optional_services(app, slug):
+async def test_service_operation_request_supports_the_fixed_service_set(app, slug):
+    operation = _service_operation(slug=slug, action="start", operation_id=f"operation-{slug}-0001")
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
-        assert login_response.status_code == 200
-
-        with patch(
-            "app.services.docker_service.request_service_action",
-            return_value={"ok": True, "slug": slug, "action": "start"},
-        ) as control_request:
-            response = await client.post(f"/api/services/{slug}/actions/start")
-
-        assert response.status_code == 200
-        assert response.json()["slug"] == slug
-        control_request.assert_called_once_with(slug, "start")
+        await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+        with patch("app.services.docker_service.request_service_action", return_value={"operation": operation}) as request:
+            response = await client.post(f"/api/services/{slug}/actions/start", json={"operation_id": operation["operation_id"]})
+    assert response.status_code == 202
+    request.assert_called_once_with(slug, "start", operation["operation_id"], 1)
 
 
 @pytest.mark.anyio
-async def test_service_action_returns_safe_docker_failure(app):
+async def test_lost_control_agent_response_keeps_operation_outcome_recoverable(app):
+    from app.services.control_agent_client import ControlAgentError
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
-        assert login_response.status_code == 200
-
-        from app.services.control_agent_client import ControlAgentError
-
-        with patch(
-            "app.services.docker_service.request_service_action",
-            side_effect=ControlAgentError("Control agent rejected the operation"),
-        ):
-            response = await client.post("/api/services/vaultwarden/actions/start")
-
-        assert response.status_code == 502
-        assert "Control agent operation failed" in response.text
-        assert "unable to pull image" not in response.text
+        await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+        with patch("app.services.docker_service.request_service_action", side_effect=ControlAgentError("timeout")):
+            response = await client.post("/api/services/adguard-home/actions/restart", json={"operation_id": "operation-lost-response-0001"})
+    assert response.status_code == 503
+    assert "refresh service status" in response.text.lower()
 
 
 @pytest.mark.anyio
-async def test_service_action_agent_rejection_is_notified_and_pending_action_cleared(app):
-    from app.models.notification import MonitorState, Notification
-
+async def test_service_status_uses_typed_runtime_snapshot_and_returns_operation(app):
+    operation = _service_operation(action="restart")
+    snapshot = _services_snapshot("running")
+    snapshot[0].update({"health_status": "healthy", "host_ip": "100.64.1.2", "url": "http://100.64.1.2:3001", "operation": operation})
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
-        assert login_response.status_code == 200
-        with patch("app.services.docker_service.request_service_action", return_value={"ok": False}):
-            response = await client.post("/api/services/adguard-home/actions/restart")
-
-    assert response.status_code == 502
-    db = app.state.testing_session_local()
-    try:
-        state = db.get(MonitorState, "service:adguard-home")
-        assert state is not None
-        assert "pending_action" not in state.value_json
-        failure = db.query(Notification).filter(Notification.event_type == "service_failure").one()
-        assert failure.source_id == "adguard-home"
-        assert "restart" in failure.message
-    finally:
-        db.close()
-
-
-@pytest.mark.anyio
-async def test_service_action_returns_meaningful_docker_cli_error(app):
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        login_response = await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
-        assert login_response.status_code == 200
-
-        from app.services.control_agent_client import ControlAgentError
-
-        with patch(
-            "app.services.docker_service.request_service_action",
-            side_effect=ControlAgentError("Control agent is unavailable"),
-        ):
-            response = await client.post("/api/services/adguard-home/actions/start")
-
-        assert response.status_code == 502
-        assert "Control agent operation failed" in response.text
-        assert "docker" not in response.text.lower()
-        assert "docs.docker.com" not in response.text
+        await client.post("/api/auth/login", json={"username": "admin", "password": "Test-secret-123!"})
+        with patch("app.services.docker_service.get_service_snapshot", return_value=snapshot) as get_snapshot:
+            response = await client.get("/api/services/status")
+    assert response.status_code == 200
+    adguard = next(item for item in response.json() if item["slug"] == "adguard-home")
+    assert adguard["health_status"] == "healthy"
+    assert adguard["operation"]["operation_id"] == operation["operation_id"]
+    assert adguard["url"] == "http://100.64.1.2:3001"
+    get_snapshot.assert_called_once()
 
 
 @pytest.mark.anyio

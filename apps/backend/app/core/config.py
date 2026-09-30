@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     compose_file: str | None = None
     compose_project_directory: str | None = None
     compose_env_file: str | None = None
+    service_config_file: str | None = None
     host_proc_net_path: str = "/proc/net"
     host_meminfo_path: str = "/proc/meminfo"
     host_thermal_path: str = "/sys/class/thermal/thermal_zone0/temp"

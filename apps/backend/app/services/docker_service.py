@@ -1,53 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
-import json
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.notification import MonitorState
-from app.schemas.services import ServiceActionResult, ServiceCapabilityRead, ServiceStatusRead
+from app.schemas.services import ServiceActionResult, ServiceCapabilityRead, ServiceOperationRead, ServiceStatusRead
 from app.services.control_agent_client import ControlAgentError, get_service_snapshot, request_service_action
-from app.services.notification_service import create_notification
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
-COMPOSE_PROFILE = "home-services"
-CONTROLLABLE_SERVICES: dict[str, tuple[str, ...]] = {
-    slug: ("start", "stop", "restart") for slug in settings.monitored_service_names
-}
-ACTION_MESSAGES = {
-    "start": "Service start requested.",
-    "stop": "Service stop requested.",
-    "restart": "Service restart requested.",
-}
+CONTROLLABLE_SERVICES = {slug: ("create", "start", "stop", "restart") for slug in get_settings().monitored_service_names}
 
 
-def _record_service_action_failure(db: Session, slug: str, action: str, request_id: str) -> None:
-    state_key = f"service:{slug}"
-    row = db.get(MonitorState, state_key)
-    if row:
-        try:
-            state = json.loads(row.value_json)
-        except (ValueError, TypeError):
-            state = {}
-        pending = state.get("pending_action")
-        if isinstance(pending, dict) and pending.get("id") == request_id:
-            state.pop("pending_action", None)
-            row.value_json = json.dumps(state)
-            row.updated_at = datetime.now(UTC)
-    create_notification(
-        db, event_key=f"service-action-failed:{slug}:{request_id}", event_type="service_failure",
-        category="service", severity="warning", title=f"{slug.replace('-', ' ').title()} action failed",
-        message=f"PiHomeHub could not complete the requested {action} action.",
-        source_type="service", source_id=slug, target_path="/services",
-    )
-    db.commit()
+@dataclass(frozen=True)
+class ServiceRuntimeSnapshot:
+    status: str
+    health_status: str | None
+    detail: str
+    ports: tuple[dict[str, Any], ...]
+    started_at: str | None
 
 
 def _find_repo_root(start: Path, workspace_root: Path = Path("/workspace")) -> Path:
@@ -69,32 +45,32 @@ def _default_compose_paths(
 
 
 DEFAULT_COMPOSE_FILE, DEFAULT_COMPOSE_PROJECT_DIR = _default_compose_paths()
-COMPOSE_FILE = Path(settings.compose_file).resolve() if settings.compose_file else DEFAULT_COMPOSE_FILE
-COMPOSE_PROJECT_DIR = (
-    Path(settings.compose_project_directory).resolve() if settings.compose_project_directory else DEFAULT_COMPOSE_PROJECT_DIR
-)
 
 
-def _snapshot_by_slug() -> dict[str, dict]:
+def _snapshot_by_slug(snapshot: list[dict[str, Any]] | None = None) -> dict[str, dict[str, Any]]:
     try:
-        return {
-            str(item.get("slug")): item
-            for item in get_service_snapshot()
-            if isinstance(item, dict) and item.get("slug") in CONTROLLABLE_SERVICES
-        }
-    except ControlAgentError:
-        return {}
+        items = snapshot if snapshot is not None else get_service_snapshot()
+    except ControlAgentError as exc:
+        raise HTTPException(status_code=503, detail="Docker service status is temporarily unavailable") from exc
+    return {str(item.get("slug")): item for item in items if isinstance(item, dict) and item.get("slug") in CONTROLLABLE_SERVICES}
 
 
-def _docker_rows() -> dict[str, tuple[str, str | None, str]]:
+def _docker_rows(snapshot: list[dict[str, Any]] | None = None) -> dict[str, ServiceRuntimeSnapshot]:
+    values = _snapshot_by_slug(snapshot)
     return {
-        slug: (str(item.get("status", "unknown")), item.get("health_status") if item.get("health_status") in {"healthy", "unhealthy", "starting"} else None, str(item.get("detail", "Status unavailable"))[:160])
-        for slug, item in _snapshot_by_slug().items()
+        slug: ServiceRuntimeSnapshot(
+            status=str(item.get("status", "unknown")),
+            health_status=item.get("health_status") if item.get("health_status") in {"healthy", "unhealthy", "starting"} else None,
+            detail=str(item.get("detail", "Status unavailable"))[:160],
+            ports=tuple(item.get("ports", ())) if isinstance(item.get("ports", ()), list) else (),
+            started_at=item.get("started_at") if isinstance(item.get("started_at"), str) else None,
+        )
+        for slug, item in values.items()
     }
 
 
-def get_running_ports(slug: str) -> dict[tuple[int, str], int]:
-    item = _snapshot_by_slug().get(slug, {})
+def get_running_ports(slug: str, snapshot: list[dict[str, Any]] | None = None) -> dict[tuple[int, str], int]:
+    item = _snapshot_by_slug(snapshot).get(slug, {})
     raw_ports = item.get("ports", [])
     result: dict[tuple[int, str], int] = {}
     for port in raw_ports if isinstance(raw_ports, list) else []:
@@ -109,63 +85,56 @@ def get_running_ports(slug: str) -> dict[tuple[int, str], int]:
 
 
 def get_service_statuses(_: Session) -> list[ServiceStatusRead]:
-    rows = _docker_rows()
-    return [
-        ServiceStatusRead(
-            name=slug.replace("-", " ").title(),
-            slug=slug,
-            status=rows.get(slug, ("unknown", None, "Control agent unavailable"))[0],
-            health_status=rows.get(slug, ("unknown", None, "Control agent unavailable"))[1],
-            detail=rows.get(slug, ("unknown", None, "Control agent unavailable"))[2],
-        )
-        for slug in settings.monitored_service_names
-    ]
+    rows = _snapshot_by_slug()
+    result = []
+    for slug in get_settings().monitored_service_names:
+        item = rows.get(slug, {})
+        operation = item.get("operation")
+        result.append(ServiceStatusRead(
+            name=slug.replace("-", " ").title(), slug=slug,
+            status=str(item.get("status", "unknown")), health_status=item.get("health_status"),
+            detail=str(item.get("detail", "Control agent unavailable"))[:160],
+            host_ip=item.get("host_ip"), host_ports=item.get("host_ports", {}), url=item.get("url"),
+            setup_required=bool(item.get("setup_required", False)),
+            operation=ServiceOperationRead.model_validate(operation) if operation else None,
+            recent_operations=[ServiceOperationRead.model_validate(item) for item in item.get("operations", [])
+                               if isinstance(item, dict)],
+        ))
+    return result
 
 
 def get_service_capabilities(_: Session) -> list[ServiceCapabilityRead]:
-    return [ServiceCapabilityRead(slug=slug, actions=list(actions)) for slug, actions in sorted(CONTROLLABLE_SERVICES.items())]
+    try:
+        values = get_service_snapshot()
+    except ControlAgentError as exc:
+        raise HTTPException(status_code=503, detail="Service controls are temporarily unavailable") from exc
+    catalog = {item.get("slug"): item for item in values if isinstance(item, dict)}
+    return [ServiceCapabilityRead(
+        slug=slug,
+        actions=list(actions),
+        setup_required=bool(catalog.get(slug, {}).get("setup_required", False)),
+    ) for slug, actions in sorted(CONTROLLABLE_SERVICES.items())]
 
 
-def run_service_action(db: Session, slug: str, action: str) -> ServiceActionResult:
+def run_service_action(db: Session, slug: str, action: str, operation_id: str, actor_user_id: int) -> ServiceActionResult:
     allowed_actions = CONTROLLABLE_SERVICES.get(slug)
     if allowed_actions is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
     if action not in allowed_actions:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unsupported service action")
-    request_id = uuid.uuid4().hex
-    state_key = f"service:{slug}"
-    state_row = db.get(MonitorState, state_key)
     try:
-        state = json.loads(state_row.value_json) if state_row else {}
-    except (ValueError, TypeError):
-        state = {}
-    state["pending_action"] = {
-        "id": request_id, "action": action, "requested_at": datetime.now(UTC).isoformat(),
-        "expected": "stopped" if action == "stop" else "running", "successes": 0,
-    }
-    if state_row is None:
-        db.add(MonitorState(key=state_key, value_json=json.dumps(state), updated_at=datetime.now(UTC)))
-    else:
-        state_row.value_json = json.dumps(state)
-        state_row.updated_at = datetime.now(UTC)
-    db.commit()
-    try:
-        result = request_service_action(slug, action)
+        result = request_service_action(slug, action, operation_id, actor_user_id)
     except ControlAgentError as exc:
-        logger.warning("Control-agent operation failed for %s:%s", slug, action)
-        _record_service_action_failure(db, slug, action, request_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Control agent operation failed") from exc
-    if not isinstance(result, dict) or not result.get("ok"):
-        logger.warning("Control-agent operation was not confirmed for %s:%s", slug, action)
-        _record_service_action_failure(db, slug, action, request_id)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Control agent operation failed")
-    return ServiceActionResult(slug=slug, action=action, ok=bool(result.get("ok")), message=ACTION_MESSAGES[action])
-
-
-def recreate_service(_: Session, slug: str) -> ServiceActionResult:
-    if slug not in CONTROLLABLE_SERVICES:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service is not controllable")
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail="Port changes require an operator-controlled Docker Compose redeployment",
-    )
+        # The request may already be journaled and executing. Keep the caller's idempotency key
+        # so the client can recover by querying status or resubmitting the same request.
+        logger.warning("Control-agent request failed for %s:%s", slug, action)
+        if exc.status_code == 409:
+            raise HTTPException(status_code=409, detail="The service changed or another operation is active. Refresh service status.") from exc
+        if exc.status_code is not None:
+            raise HTTPException(status_code=exc.status_code, detail="Docker could not accept the service operation. Check service status before retrying.") from exc
+        raise HTTPException(status_code=503, detail="Operation was submitted or may still be running; refresh service status before retrying") from exc
+    operation = result.get("operation") if isinstance(result, dict) else None
+    if not isinstance(operation, dict):
+        raise HTTPException(status_code=502, detail="Control agent returned an invalid operation status")
+    return ServiceActionResult(slug=slug, action=action, ok=True, message="Service operation accepted.",
+                               operation=ServiceOperationRead.model_validate(operation))

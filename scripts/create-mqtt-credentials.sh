@@ -27,3 +27,5 @@ docker run --rm -it --entrypoint sh \
     chmod 640 /mosquitto/config/generated/passwords /mosquitto/config/generated/acl' \
   sh "$username" "$(id -u)"
 echo "Now add an allowlisted 'user $username' block to infra/mosquitto/generated/acl."
+python3 scripts/generate-service-config.py
+echo "PiHomeHub service setup status refreshed."

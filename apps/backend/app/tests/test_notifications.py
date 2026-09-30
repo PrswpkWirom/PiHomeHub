@@ -141,42 +141,68 @@ def test_device_and_service_alerts_only_follow_debounced_transitions(app):
         db.close()
 
 
-def test_manual_service_actions_require_observed_restart_recovery_and_stop_is_informational(app):
+def test_journal_drives_deduplicated_action_notifications_and_stop_is_informational(app):
+    db = app.state.testing_session_local()
+    settings = get_settings()
+    now = datetime.now(UTC)
+    try:
+        restart = {
+            "operation_id": "operation-gitea-restart-complete-0001", "slug": "gitea", "action": "restart",
+            "state": "succeeded", "finished_at": now.isoformat(), "actor_user_id": 1,
+            "message": "Operation completed and verified.",
+        }
+        raw = {"status": "running", "operation": restart, "operations": [restart]}
+        _service_sample(db, "gitea", raw, now, settings)
+        _service_sample(db, "gitea", raw, now + timedelta(seconds=30), settings)
+        completed = db.query(Notification).filter(Notification.event_type == "service_action_completed").filter(
+            Notification.source_id == "gitea"
+        ).one()
+        assert completed.severity == "success"
+        assert completed.title == "Gitea restart completed"
+
+        stop = {
+            "operation_id": "operation-mosquitto-stop-complete-0001", "slug": "mosquitto", "action": "stop",
+            "state": "succeeded", "finished_at": now.isoformat(), "actor_user_id": 1,
+            "message": "Operation completed and verified.",
+        }
+        stopped = {"status": "exited", "operation": stop, "operations": [stop]}
+        _service_sample(db, "mosquitto", stopped, now + timedelta(seconds=30), settings)
+        _service_sample(db, "mosquitto", stopped, now + timedelta(seconds=60), settings)
+        stop_notice = db.query(Notification).filter(Notification.event_type == "service_action_completed").filter(
+            Notification.source_id == "mosquitto"
+        ).one()
+        assert stop_notice.severity == "info"
+        assert stop_notice.title == "Mosquitto stop completed"
+        assert db.query(Notification).filter(Notification.event_type == "service_failure").filter(
+            Notification.source_id == "mosquitto"
+        ).count() == 0
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_failed_action_journal_does_not_duplicate_generic_service_failure(app):
     db = app.state.testing_session_local()
     settings = get_settings()
     now = datetime.now(UTC)
     try:
         db.add(MonitorState(key="service:gitea", value_json=json.dumps({
-            "pending_action": {
-                "id": "restart-1", "action": "restart", "requested_at": now.isoformat(),
-                "expected": "running", "successes": 0,
-            },
+            "stable": "running", "ever_running": True,
         }), updated_at=now))
         db.commit()
-
-        _service_sample(db, "gitea", {"status": "running"}, now + timedelta(seconds=30), settings)
-        assert db.query(Notification).filter(Notification.event_type == "service_action_completed").count() == 0
-        _service_sample(db, "gitea", {"status": "exited"}, now + timedelta(seconds=60), settings)
-        _service_sample(db, "gitea", {"status": "running"}, now + timedelta(seconds=90), settings)
-        _service_sample(db, "gitea", {"status": "running"}, now + timedelta(seconds=120), settings)
-        restarted = db.query(Notification).filter(Notification.event_type == "service_action_completed").one()
-        assert restarted.severity == "success"
-        assert restarted.title == "Gitea recovered"
-
-        db.add(MonitorState(key="service:mosquitto", value_json=json.dumps({
-            "pending_action": {
-                "id": "stop-1", "action": "stop", "requested_at": now.isoformat(),
-                "expected": "stopped", "successes": 0,
-            },
-        }), updated_at=now))
-        db.commit()
-        _service_sample(db, "mosquitto", {"status": "exited"}, now + timedelta(seconds=30), settings)
-        _service_sample(db, "mosquitto", {"status": "exited"}, now + timedelta(seconds=60), settings)
-        stopped = db.query(Notification).filter(Notification.event_type == "service_action_completed").filter(
-            Notification.source_id == "mosquitto"
-        ).one()
-        assert stopped.severity == "info"
-        assert stopped.title == "Mosquitto stopped"
+        failed = {
+            "operation_id": "operation-gitea-restart-failed-0001", "slug": "gitea", "action": "restart",
+            "state": "failed", "finished_at": now.isoformat(), "actor_user_id": 1,
+            "message": "Docker could not complete the operation.",
+        }
+        raw = {"status": "exited", "operation": failed, "operations": [failed]}
+        for sample in range(4):
+            _service_sample(db, "gitea", raw, now + timedelta(seconds=sample * 30), settings)
+        failures = db.query(Notification).filter(Notification.event_type == "service_failure").filter(
+            Notification.source_id == "gitea"
+        ).all()
+        assert len(failures) == 1
+        assert failures[0].title == "Gitea restart failed"
     finally:
         db.rollback()
         db.close()
