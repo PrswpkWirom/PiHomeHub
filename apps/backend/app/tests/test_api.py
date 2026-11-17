@@ -81,6 +81,8 @@ async def test_pi_status_schema(app):
         assert "cpu_percent" in payload
         assert "memory_percent" in payload
         assert "disk_percent" in payload
+        for key in ("cpu_model", "cpu_logical_count", "memory_total_bytes", "memory_used_bytes", "memory_speed_mts", "disk_total_bytes", "disk_used_bytes"):
+            assert key in payload
 
 
 @pytest.mark.anyio

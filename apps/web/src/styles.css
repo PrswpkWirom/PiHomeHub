@@ -120,6 +120,8 @@ input::placeholder, textarea::placeholder { color: rgb(var(--color-muted)); opac
   .metric-tile__track span:nth-child(5n+1):not(:first-child) { margin-left: 3px; }
   .metric-tile__track span[data-lit="true"] { background: rgb(var(--color-clay)); }
   .metric-tile__track[data-available="false"] span { opacity: .55; }
+  .metric-tile__detail { margin: 14px 0 0; font-size: 12px; line-height: 1.5; color: rgb(var(--color-mist)); overflow-wrap: anywhere; }
+  .metric-tile__context { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: rgb(var(--color-muted)); }
   .metrics-strip--ready .metric-tile__track { animation: meter-register 480ms var(--ease-out); }
   .metrics-strip--ready .metric-tile:nth-child(2) .metric-tile__track { animation-duration: 520ms; }
   .metrics-strip--ready .metric-tile:nth-child(3) .metric-tile__track { animation-duration: 560ms; }
@@ -373,3 +375,10 @@ input::placeholder, textarea::placeholder { color: rgb(var(--color-muted)); opac
 }
 .nav-item { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: -.02em; }
 .topbar-location { font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+
+@media (max-width: 359px) {
+  .topbar { padding-inline: 16px; gap: 8px; }
+  .topbar-actions { gap: 4px; }
+  .metric-tile { padding: 16px; }
+  .metric-tile__value { font-size: 26px; }
+}

@@ -19,7 +19,13 @@ function formatUptime(seconds: number) {
   return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
 }
 
-function Metric({ label, value, percent, icon: Icon }: { label: string; value: string; percent: number | null; icon: typeof Cpu }) {
+function usageDetail(used?: number | null, total?: number | null) {
+  if (used == null || total == null || total <= 0) return "Capacity unavailable";
+  const gib = (bytes: number) => (bytes / 1024 ** 3).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  return `${gib(used)} / ${gib(total)} GiB used`;
+}
+
+function Metric({ label, value, percent, detail, context, icon: Icon }: { label: string; value: string; percent: number | null; detail?: string; context?: string; icon: typeof Cpu }) {
   const filledSegments = Math.round(Math.max(0, Math.min(100, percent ?? 0)) / 5);
   return (
     <article className="metric-tile">
@@ -28,6 +34,8 @@ function Metric({ label, value, percent, icon: Icon }: { label: string; value: s
       <div className="metric-tile__track" aria-hidden="true" data-available={percent != null}>
         {Array.from({ length: 20 }, (_, index) => <span key={index} data-lit={percent != null && index < filledSegments} />)}
       </div>
+      {detail ? <p className="metric-tile__detail" title={detail}>{detail}</p> : null}
+      {context ? <p className="metric-tile__context">{context}</p> : null}
     </article>
   );
 }
@@ -115,9 +123,9 @@ export function DashboardPage() {
         <section aria-labelledby="live-health-title">
           <div className="section-heading"><div className="server-heading"><span className="server-glyph" aria-hidden="true"><i /><i /><i /><i /></span><h2 id="live-health-title">The server</h2>{metrics.data.hostname ? <span className="host-label">{metrics.data.hostname}</span> : null}</div><span className="refresh-label"><span key={metrics.updatedAt} className="sample-mark" aria-hidden="true" />{metrics.refreshing ? "Refreshing" : `Updated ${new Date(metrics.updatedAt ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}</span></div>
           <div className="metrics-strip metrics-strip--ready">
-            <Metric label="CPU load" value={`${metrics.data.cpu_percent.toFixed(0)}%`} percent={metrics.data.cpu_percent} icon={Cpu} />
-            <Metric label="Memory" value={metrics.data.memory_percent == null ? "N/A" : `${metrics.data.memory_percent.toFixed(0)}%`} percent={metrics.data.memory_percent} icon={MemoryStick} />
-            <Metric label="Storage" value={metrics.data.disk_percent == null ? "N/A" : `${metrics.data.disk_percent.toFixed(0)}%`} percent={metrics.data.disk_percent} icon={HardDrive} />
+            <Metric label="CPU load" value={`${metrics.data.cpu_percent.toFixed(0)}%`} percent={metrics.data.cpu_percent} icon={Cpu} detail={metrics.data.cpu_model ?? "CPU model unavailable"} context={metrics.data.cpu_logical_count ? `${metrics.data.cpu_logical_count} logical processors` : undefined} />
+            <Metric label="Memory" value={metrics.data.memory_percent == null ? "N/A" : `${metrics.data.memory_percent.toFixed(0)}%`} percent={metrics.data.memory_percent} icon={MemoryStick} detail={usageDetail(metrics.data.memory_used_bytes, metrics.data.memory_total_bytes)} context={metrics.data.memory_speed_mts ? `${metrics.data.memory_speed_mts.toLocaleString()} MT/s configured` : "Speed unavailable"} />
+            <Metric label="Storage" value={metrics.data.disk_percent == null ? "N/A" : `${metrics.data.disk_percent.toFixed(0)}%`} percent={metrics.data.disk_percent} icon={HardDrive} detail={usageDetail(metrics.data.disk_used_bytes, metrics.data.disk_total_bytes)} context="Root filesystem" />
             <Metric label="Temperature" value={metrics.data.temperature_c != null ? `${metrics.data.temperature_c.toFixed(1)}°C` : "N/A"} percent={metrics.data.temperature_c != null ? (metrics.data.temperature_c / 85) * 100 : null} icon={Thermometer} />
           </div>
         </section>

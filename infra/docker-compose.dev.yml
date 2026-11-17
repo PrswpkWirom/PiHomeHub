@@ -8,6 +8,8 @@ services:
       PIHOMEHUB_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.3
       PIHOMEHUB_HOST_MEMINFO_PATH: /proc/meminfo
+      PIHOMEHUB_HOST_CPUINFO_PATH: /proc/cpuinfo
+      PIHOMEHUB_HOST_HARDWARE_FILE: ""
       PIHOMEHUB_HOST_THERMAL_PATH: /sys/class/thermal/thermal_zone0/temp
       PIHOMEHUB_HOST_ROOT_PROBE_PATH: /host/rootfs-metrics
     ports:

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     service_config_file: str | None = None
     host_proc_net_path: str = "/proc/net"
     host_meminfo_path: str = "/proc/meminfo"
+    host_cpuinfo_path: str = "/proc/cpuinfo"
+    host_hardware_file: str = ""
     host_thermal_path: str = "/sys/class/thermal/thermal_zone0/temp"
     host_root_probe_path: str = "/"
     notification_monitor_interval_seconds: int = Field(default=30, ge=10, le=300)

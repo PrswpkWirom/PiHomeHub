@@ -301,3 +301,17 @@ Compose configurations, and npm audit pass (zero known npm vulnerabilities).
 All five core containers are healthy. An actual request from a second machine
 was not available in this workspace; that client must be connected to the same
 tailnet and permitted by its access rules.
+
+### Dashboard hardware details
+
+The server strip reports the CPU model and logical processor count, memory used/usable capacity, and root-filesystem used/total capacity. Sizes use GiB (1,073,741,824 bytes). RAM usage is `MemTotal - MemAvailable`, matching its percentage; usable RAM excludes firmware/kernel reservations ([Linux kernel documentation](https://www.kernel.org/doc/html/latest/filesystems/proc.html)). Storage uses the existing host root-filesystem probe; filesystem reservations can make its percentage differ from a simple used/total ratio.
+
+Configured RAM transfer speed is optional. On a host with SMBIOS support, install `dmidecode` with your distribution's package manager, then run from the repository:
+
+```bash
+sudo python3 scripts/collect-host-hardware.py
+```
+
+This writes only the configured transfer rate to `infra/generated/hardware.json`, readable by the existing unprivileged backend through its read-only generated-directory mount. It does not export DIMM serial numbers or grant the container hardware access. Re-run after changing RAM or firmware memory settings. No container restart is needed to refresh an existing snapshot. The backend/frontend must be rebuilt for the new API fields and CPU-info mount.
+
+Missing tools, unsupported firmware, unknown configured speed, or mixed configured speeds produce an unavailable speed rather than an advertised maximum. Many Raspberry Pi hosts do not expose this SMBIOS information. Local backend development can point `PIHOMEHUB_HOST_HARDWARE_FILE` at the snapshot; Docker configures this path automatically.

@@ -44,12 +44,19 @@ export type AuditEventPage = {
 export type PiStatus = {
   hostname: string;
   cpu_percent: number;
-  memory_percent: number;
-  disk_percent: number;
+  memory_percent: number | null;
+  disk_percent: number | null;
   temperature_c: number | null;
   uptime_seconds: number;
   local_ip: string | null;
   platform: string;
+  cpu_model?: string | null;
+  cpu_logical_count?: number | null;
+  memory_total_bytes?: number | null;
+  memory_used_bytes?: number | null;
+  memory_speed_mts?: number | null;
+  disk_total_bytes?: number | null;
+  disk_used_bytes?: number | null;
 };
 
 export type DeviceSummary = {

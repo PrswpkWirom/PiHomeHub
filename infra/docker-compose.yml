@@ -28,6 +28,8 @@ services:
       PIHOMEHUB_TRUSTED_PROXY_IPS: 172.30.0.2
       PIHOMEHUB_HOST_PROC_NET_PATH: /host/proc/net
       PIHOMEHUB_HOST_MEMINFO_PATH: /host/meminfo
+      PIHOMEHUB_HOST_CPUINFO_PATH: /host/cpuinfo
+      PIHOMEHUB_HOST_HARDWARE_FILE: /run/pihomehub/hardware.json
       PIHOMEHUB_HOST_THERMAL_PATH: /host/thermal/thermal_zone0/temp
       PIHOMEHUB_HOST_ROOT_PROBE_PATH: /host/rootfs-metrics
       PIHOMEHUB_NOTIFICATION_MONITOR_INTERVAL_SECONDS: ${PIHOMEHUB_NOTIFICATION_MONITOR_INTERVAL_SECONDS:-30}
@@ -53,6 +55,7 @@ services:
       - backend-data:/data
       - /proc/net:/host/proc/net:ro
       - ${PIHOMEHUB_HOST_MEMINFO_SOURCE:-/proc/meminfo}:/host/meminfo:ro
+      - /proc/cpuinfo:/host/cpuinfo:ro
       - ${PIHOMEHUB_HOST_THERMAL_SOURCE:-/sys/class/thermal}:/host/thermal:ro
       - type: bind
         source: ${PIHOMEHUB_HOST_ROOT_METRICS_PATH:-/.pihomehub/rootfs-metrics}
