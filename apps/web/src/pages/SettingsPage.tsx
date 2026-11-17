@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { Panel } from "../components/Panel";
@@ -16,20 +17,24 @@ const sections = [
 export function SettingsPage() {
   const { isAdmin } = usePermissions();
   const location = useLocation();
+  const tabsRef = useRef<HTMLElement>(null);
   const pathParts = location.pathname.split("/").filter(Boolean);
   const section = pathParts[pathParts.length - 1] ?? "account";
   const title = sections.find((item) => item.path === section)?.label ?? "Settings";
+
+  useLayoutEffect(() => {
+    tabsRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [section]);
 
   return (
     <div className="page-stack">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Workspace</p>
-          <h1 className="page-title">Settings</h1>
+          <h1 className="page-title">Settings <span className="settings-location">/ {title}</span></h1>
           <p className="page-copy">Manage your account, private access, and PiHomeHub preferences.</p>
         </div>
       </div>
-      <nav aria-label="Settings" className="flex gap-2 overflow-x-auto rounded-[18px] border border-line bg-panel p-2">
+      <nav ref={tabsRef} aria-label="Settings" className="settings-tabs">
         {sections.filter((item) => !("admin" in item) || !item.admin || isAdmin).map((item) => (
           <NavLink
             key={item.path}

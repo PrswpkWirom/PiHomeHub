@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, LockKeyhole, ShieldCheck, Wifi } from "lucide-react";
 
+import { AsciiArtwork } from "../components/AsciiArtwork";
 import { BrandMark } from "../components/BrandMark";
 import { FeedbackMessage } from "../components/FeedbackMessage";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -32,9 +33,8 @@ export function LoginPage() {
   return (
     <main className="relative grid min-h-dvh bg-app text-mist lg:grid-cols-[1.08fr_.92fr]">
       <section className="login-visual">
-        <div className="login-visual__texture" aria-hidden="true" />
+        <div className="login-ascii"><AsciiArtwork /></div>
         <div className="login-visual__content">
-          <div className="login-visual__label"><span /> Local-first home intelligence</div>
           <h1>Your private home.<br /><span>Under your control.</span></h1>
           <p className="mt-5 max-w-lg text-base leading-7 text-white/60">Monitor devices, manage services, and keep your home running—without exposing it to the public internet.</p>
           <div className="login-visual__facts"><span><ShieldCheck size={17} /> Private by design</span><span><Wifi size={17} /> LAN + Tailscale</span></div>
@@ -46,9 +46,8 @@ export function LoginPage() {
         <form className="w-full max-w-[27rem]" onSubmit={onSubmit}>
           <BrandMark />
           <div className="mt-12">
-            <p className="eyebrow"><span /> Secure access</p>
-            <h2 className="mt-3 font-display text-4xl font-extrabold tracking-[-.05em] text-mist">Welcome home.</h2>
-            <p className="mt-3 text-sm leading-6 text-muted">Sign in to open your private command center.</p>
+            <h2 className="mt-3 font-display text-3xl font-bold tracking-[-.035em] text-mist">Welcome home.</h2>
+            <p className="mt-3 text-sm leading-6 text-muted">Your server, services, and devices are a sign-in away.</p>
           </div>
           <div className="mt-8 grid gap-4">
             <label className="field-label">Username<input className="input-field" value={username} onChange={(e) => { setUsername(e.target.value); setError(null); }} autoComplete="username" /></label>

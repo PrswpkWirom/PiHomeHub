@@ -2,15 +2,17 @@ export function Panel({
   title,
   children,
   action,
-  description
+  description,
+  className = ""
 }: {
   title: string;
   children: React.ReactNode;
   action?: React.ReactNode;
   description?: string;
+  className?: string;
 }) {
   return (
-    <section className="app-panel">
+    <section className={`app-panel ${className}`}>
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="panel-title">{title}</h2>

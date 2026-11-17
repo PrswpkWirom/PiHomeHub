@@ -1,0 +1,18 @@
+.overview-header--ascii .ascii-art.ascii-art--snoopy {
+  width: 100%;
+}
+
+.ascii-art--snoopy canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 520 / 222;
+  max-height: 320px;
+  pointer-events: none;
+}
+
+@media (min-width: 1280px) {
+  .overview-header--ascii .ascii-art.ascii-art--snoopy {
+    transform: translateX(-72px);
+  }
+}

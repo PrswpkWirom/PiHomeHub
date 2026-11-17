@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Home, ListChecks, LogOut, Monitor, Search, Server, Settings } from "lucide-react";
+import { ChevronRight, Home, ListChecks, LogOut, Monitor, Server, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+import { AsciiArtwork } from "../components/AsciiArtwork";
 import { BrandMark } from "../components/BrandMark";
 import { OfflineIndicator } from "../components/OfflineIndicator";
 import { ThemeToggle } from "../components/ThemeToggle";
@@ -49,8 +50,7 @@ export function AppLayout() {
 
       <aside className="desktop-sidebar">
         <BrandMark />
-        <nav className="sidebar-nav" aria-label="Primary navigation">
-          <p className="nav-section-label">Workspace</p>
+        <nav className="sidebar-nav" aria-label="Primary navigation" data-active-index={navItems.findIndex((item) => location.pathname.startsWith(item.to))}>
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -64,13 +64,7 @@ export function AppLayout() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="network-card">
-            <div className="network-card__orb"><span /></div>
-            <div>
-              <p className="text-sm font-semibold text-mist">Your home is private</p>
-              <p className="mt-1 text-xs leading-5 text-muted">Available on LAN &amp; Tailscale</p>
-            </div>
-          </div>
+          <AsciiArtwork variant="rack" />
           <ThemeToggle />
           <div className="user-card">
             <div className="user-avatar">{user?.username?.slice(0, 1).toUpperCase() || "A"}</div>
@@ -83,18 +77,17 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <div className="lg:ml-[17.5rem]">
+      <div className="workspace">
         <header className="topbar">
           <div className="lg:hidden"><BrandMark compact /></div>
           <div className="hidden lg:block">
-            <p className="text-xs font-medium text-muted">PiHomeHub / <span className="text-mist">{currentPage}</span></p>
+            <p className="topbar-location">Home <ChevronRight size={13} /><span>{currentPage}</span></p>
           </div>
           <div className="topbar-actions">
-            <button className="topbar-search" aria-label="Search (coming soon)" title="Search is coming soon">
-              <Search size={16} /><span>Search hub</span><kbd>⌘ K</kbd>
-            </button>
+            <span className="topbar-context">Private workspace</span>
             <NotificationControl />
             <div className="lg:hidden"><ThemeToggle compact /></div>
+            <button className="icon-button lg:hidden" aria-label="Sign out" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} /></button>
           </div>
         </header>
 

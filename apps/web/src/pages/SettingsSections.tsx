@@ -281,11 +281,11 @@ export function AccessSettingsPage() {
     <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <Panel title="Tailscale" description="Token values remain write-only in the UI after saving.">
         {isAdmin ? <form className="space-y-4" onSubmit={save}>
-          <div className="grid gap-3 rounded-[18px] border border-line bg-deep p-4 text-sm text-muted sm:grid-cols-3">
-            <div className="rounded-[14px] bg-card/70 p-3"><p className="text-xs font-semibold text-muted">Status</p><div className="mt-2">{status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : "Loading…"}</div></div>
-            <div className="rounded-[14px] bg-card/70 p-3"><p className="text-xs font-semibold text-muted">Token</p><p className="mt-2 font-semibold text-mist">{status?.token_saved ? "Token saved" : "No token configured"}</p></div>
-            <div className="rounded-[14px] bg-card/70 p-3"><p className="text-xs font-semibold text-muted">Last sync</p><p className="mt-2 text-sm tabular-nums text-mist">{status?.last_sync_at ?? "Never"}</p></div>
-          </div>
+          <dl className="access-summary">
+            <div><dt>Status</dt><dd>{status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : "Loading…"}</dd></div>
+            <div><dt>Token</dt><dd>{status ? status.token_saved ? "Token saved" : "No token configured" : "Loading…"}</dd></div>
+            <div><dt>Last sync</dt><dd>{status ? status.last_sync_at ? formatDate(status.last_sync_at) : "Never" : "Loading…"}</dd></div>
+          </dl>
           {status?.last_sync_error ? <FeedbackMessage feedback={{ kind: "warning", persistent: true, text: `Previous sync error: ${status.last_sync_error}` }} /> : null}
           <FeedbackMessage feedback={statusError} action={<button className="btn-secondary" type="button" onClick={() => void loadStatus().catch(() => undefined)}>Retry Tailscale status</button>} />
           <Field label="API token" type="password" autoComplete="off" value={apiToken} onChange={(event) => { setApiToken(event.target.value); setMessage(null); }} help={status?.token_saved ? "Enter a new token only when replacing it." : "Paste a Tailscale API token."} />
@@ -298,7 +298,11 @@ export function AccessSettingsPage() {
           <FeedbackMessage feedback={message} onDismiss={() => setMessage(null)} />
         </form> : <div className="space-y-4">
           <p className="text-sm text-muted">Tailscale settings and sync controls require administrator access.</p>
-          <dl className="grid gap-3 sm:grid-cols-3"><div className="raised-card"><dt className="text-xs text-muted">Status</dt><dd className="mt-2">{status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : "Loading…"}</dd></div><div className="raised-card"><dt className="text-xs text-muted">Token</dt><dd className="mt-2 font-semibold">{status?.token_saved ? "Token saved" : "No token configured"}</dd></div><div className="raised-card"><dt className="text-xs text-muted">Last sync</dt><dd className="mt-2">{status?.last_sync_at ?? "Never"}</dd></div></dl>
+          <dl className="access-summary">
+            <div><dt>Status</dt><dd>{status ? <StatusPill status={status.connected ? "connected" : "not connected"} /> : "Loading…"}</dd></div>
+            <div><dt>Token</dt><dd>{status ? status.token_saved ? "Token saved" : "No token configured" : "Loading…"}</dd></div>
+            <div><dt>Last sync</dt><dd>{status ? status.last_sync_at ? formatDate(status.last_sync_at) : "Never" : "Loading…"}</dd></div>
+          </dl>
           {status?.last_sync_error ? <FeedbackMessage feedback={{ kind: "warning", persistent: true, text: `Previous sync error: ${status.last_sync_error}` }} /> : null}
           <FeedbackMessage feedback={statusError} action={<button className="btn-secondary" type="button" onClick={() => void loadStatus().catch(() => undefined)}>Retry Tailscale status</button>} />
         </div>}

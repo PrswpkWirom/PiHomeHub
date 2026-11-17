@@ -21,9 +21,9 @@ export default {
         danger: "rgb(var(--color-danger) / <alpha-value>)"
       },
       fontFamily: {
-        display: ["Iowan Old Style", "Palatino Linotype", "Book Antiqua", "Georgia", "serif"],
-        body: ["Avenir Next", "Avenir", "Segoe UI", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "'SFMono-Regular'", "Consolas", "monospace"]
+        display: ["Manrope", "sans-serif"],
+        body: ["Manrope", "sans-serif"],
+        mono: ["IBM Plex Mono", "monospace"]
       },
       boxShadow: {
         panel: "var(--shadow-panel)",

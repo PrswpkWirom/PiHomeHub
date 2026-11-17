@@ -1,5 +1,4 @@
 export function PageIntro({
-  eyebrow,
   title,
   description,
   action
@@ -12,7 +11,6 @@ export function PageIntro({
   return (
     <header className="page-intro">
       <div>
-        <p className="eyebrow"><span /> {eyebrow}</p>
         <h1 className="page-title">{title}</h1>
         <p className="page-copy">{description}</p>
       </div>

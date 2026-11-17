@@ -629,14 +629,13 @@ export function ServicesPage() {
     <div className="page-stack">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Services</p>
-          <h1 className="page-title">Service control room</h1>
-          <p className="page-copy">Monitor local services, inspect their purpose, and open their dashboards without losing operational context.</p>
+          <h1 className="page-title">Services</h1>
+          <p className="page-copy">Manage the services that make your home server useful.</p>
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-      <Panel title="Monitored services" description="Runtime state reported by the backend service checks.">
+      <div className="services-layout">
+      <Panel title="Monitored services" description="Runtime state reported by the backend service checks." className="service-inventory">
         {statuses.loading ? (
           <div className="space-y-3">
             <div className="skeleton h-28" />
@@ -655,7 +654,7 @@ export function ServicesPage() {
           feedback={pollingError ? { kind: "error", persistent: true, text: `Automatic port check failed: ${pollingError}` } : null}
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void retryPendingPortPoll().catch(() => undefined)}>Retry pending port check</button>}
         />
-        <div className="space-y-4">
+        <div className="service-card-list">
           {!isAdmin && statuses.data?.some((service) => actionsForStatus(service, capabilitiesBySlug.get(service.slug)).length > 0) ? <p className="text-sm text-muted">Service controls require administrator access.</p> : null}
           {statuses.data?.map((service) => {
             const info = SERVICE_INFO[service.slug];
@@ -667,21 +666,20 @@ export function ServicesPage() {
             const pendingResponse = Boolean(outstandingRequest && outstandingRequest.operationId !== service.operation?.operation_id);
 
             return (
-              <article key={service.slug} className="raised-card">
-                <div className="flex items-start justify-between gap-4">
+              <article key={service.slug} className="raised-card service-entry">
+                <div className="service-entry__heading">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <Server className="text-accent" size={17} />
                       <p className="font-semibold text-mist">{service.name}</p>
                     </div>
-                    <p className="mt-2 text-sm leading-6 text-muted">{service.detail}</p>
+                    {service.detail && service.detail.toLowerCase() !== service.status.toLowerCase() ? <p className="mt-2 text-sm leading-6 text-muted">{service.detail}</p> : null}
                     {service.status === "running" && dashboardUrl ? <a className="mt-2 inline-flex items-center gap-2 text-sm font-semibold text-accent hover:text-accent-focus" href={dashboardUrl ?? undefined} target="_blank" rel="noreferrer">Open dashboard <ExternalLink size={14} /></a> : null}
-                    {service.status === "running" ? <p className={`mt-1 text-xs font-semibold ${service.health_status === "unhealthy" ? "text-amber-400" : service.health_status === "healthy" ? "text-emerald-400" : "text-muted"}`}>Application health: {service.health_status ?? "No health check configured"}</p> : null}
+                    {service.status === "running" ? <p className={`mt-1 text-xs font-semibold ${service.health_status === "unhealthy" ? "text-warning" : service.health_status === "healthy" ? "text-success" : "text-muted"}`}>Application health: {service.health_status ?? "No health check configured"}</p> : null}
                   </div>
                   <StatusPill status={service.status} />
-                </div>
                 {actions.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+                  <div className="service-entry__actions">
                     {actions.map((action) => (
                       <button
                         key={action}
@@ -700,8 +698,10 @@ export function ServicesPage() {
                     ))}
                   </div>
                 ) : null}
+
+                </div>
                 {!isAdmin && actions.length > 0 ? <p id={`service-admin-required-${service.slug}`} className="mt-2 text-xs text-muted">Administrator access required</p> : null}
-                {service.setup_required ? <p className="mt-3 text-sm text-amber-300">Setup required: create Mosquitto credentials and add an allowed user to <code>infra/mosquitto/generated/acl</code>, then run <code>scripts/generate-service-config.py</code>.</p> : null}
+                {service.setup_required ? <p className="mt-3 text-sm text-warning">Setup required: create Mosquitto credentials and add an allowed user to <code>infra/mosquitto/generated/acl</code>, then run <code>scripts/generate-service-config.py</code>.</p> : null}
                 {service.operation || outstandingRequest ? (
                   <div className={`mt-3 rounded-xl border px-3 py-3 ${!pendingResponse && service.operation?.state === "failed" ? "border-red-400/40 bg-red-950/20" : !pendingResponse && service.operation?.state === "unknown" ? "border-amber-400/40 bg-amber-950/20" : !pendingResponse && service.operation?.state === "succeeded" ? "border-emerald-400/30 bg-emerald-950/10" : "border-line bg-deep/60"}`} role="status" aria-live="polite">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -718,6 +718,8 @@ export function ServicesPage() {
                     onDismiss={() => setActionMessage(null)}
                   />
                 ) : null}
+                <details className="service-configuration" open={Boolean(portConfig?.ports.some((port) => port.pending) || portMessages[service.slug])}>
+                  <summary>Ports &amp; configuration <span>{portConfig?.ports.some((port) => port.pending) ? "Changes pending" : "View details"}</span></summary>
                 <ServicePortEditor
                   config={portConfig}
                   drafts={portDrafts[service.slug]}
@@ -732,6 +734,7 @@ export function ServicesPage() {
                   onCheckNow={(config) => void checkPendingPorts(config)}
                   onDismissMessage={dismissPortMessage}
                 />
+                </details>
                 {info ? (
                   <details className="group mt-4 border-t border-line pt-4">
                     <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-accent outline-none transition hover:text-accent-focus focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-accent/40">

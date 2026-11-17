@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, Edit3, LockKeyhole, Monitor, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
+import { ChevronDown, Edit3, LockKeyhole, Monitor, Plus, Power, RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import { api } from "../api/client";
 import { usePermissions } from "../components/AdminOnly";
@@ -171,6 +171,7 @@ export function DevicesPage() {
       document.removeEventListener("visibilitychange", refreshIdentity);
     };
   }, [refetchCurrentIdentity, tailscale.data?.length]);
+  const [manualFormOpen, setManualFormOpen] = useState(false);
   const [manualForm, setManualForm] = useState<DeviceWrite>(emptyManualDevice);
   const [editingManualId, setEditingManualId] = useState<number | null>(null);
   const [editingTailscaleId, setEditingTailscaleId] = useState<number | null>(null);
@@ -264,6 +265,7 @@ export function DevicesPage() {
       }
       setManualForm(emptyManualDevice);
       setEditingManualId(null);
+      setManualFormOpen(false);
     } catch (error) {
       setManualMessage(errorFeedback(error, "Manual device settings could not be saved."));
     } finally {
@@ -276,6 +278,7 @@ export function DevicesPage() {
       return;
     }
     setManualMessage(null);
+    setManualFormOpen(true);
     setEditingManualId(device.id);
     setManualForm({
       name: device.name,
@@ -373,14 +376,13 @@ export function DevicesPage() {
     <div className="page-stack">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Inventory</p>
           <h1 className="page-title">Devices</h1>
           <p className="page-copy">Tailscale nodes and manually managed LAN devices share one operational view.</p>
         </div>
       </div>
       <Panel
         title="Tailscale devices"
-        description="Synced from the Tailscale API. Device settings stay editable inline so the list remains visible."
+        description="Your synced devices. Connection state is from the latest Tailscale sync."
         action={
           <div className="flex flex-wrap items-center justify-end gap-3 text-sm text-muted">
             <span>{lastSyncAt ? `Last sync ${lastSyncAt}` : isAdmin ? "Background sync after load" : "Sync status from Tailscale"}</span>
@@ -543,13 +545,13 @@ export function DevicesPage() {
         <FeedbackMessage feedback={message} className="mt-4" onDismiss={() => setMessage(null)} />
       </Panel>
 
-      <Panel title="Manual devices" description="LAN devices you add and maintain directly in PiHomeHub.">
+      <Panel title="Manual devices" description="LAN devices you add and maintain directly in PiHomeHub." action={isAdmin ? <button className="btn-secondary" type="button" aria-expanded={manualFormOpen} onClick={() => { setManualFormOpen(!manualFormOpen); setEditingManualId(null); setManualForm(emptyManualDevice); }}><Plus size={16} /> Add device</button> : undefined}>
         {manual.loading ? <LoadingRows /> : null}
         <FeedbackMessage
           feedback={manual.error ? { kind: "error", persistent: true, text: manual.error } : null}
           action={<button className="btn-secondary min-h-9 px-3 py-1" onClick={() => void manual.refetch()}>Retry manual devices</button>}
         />
-        {isAdmin ? <form ref={manualSettingsRef} className="mb-5 grid scroll-mt-6 gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
+        {isAdmin && manualFormOpen ? <form ref={manualSettingsRef} className="mb-5 grid scroll-mt-6 gap-4 rounded-[18px] border border-line bg-deep p-5" onSubmit={saveManual}>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Name" value={manualForm.name} onChange={(event) => setManualForm({ ...manualForm, name: event.target.value })} required />
             <Field label="Device type" value={manualForm.device_type} onChange={(event) => setManualForm({ ...manualForm, device_type: event.target.value })} />
@@ -565,14 +567,14 @@ export function DevicesPage() {
           <TextareaField label="Description" value={manualForm.description ?? ""} onChange={(event) => setManualForm({ ...manualForm, description: event.target.value })} />
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary" disabled={deviceWriteBusy}>{deviceWriteBusy ? "Saving…" : editingManualId ? "Save device" : "Add device"}</button>
-            {editingManualId ? (
-              <button className="btn-secondary" type="button" onClick={() => { setEditingManualId(null); setManualForm(emptyManualDevice); setManualMessage(null); }}>
+            {manualFormOpen ? (
+              <button className="btn-secondary" type="button" onClick={() => { setEditingManualId(null); setManualForm(emptyManualDevice); setManualMessage(null); setManualFormOpen(false); }}>
                 <X size={16} />
                 Cancel
               </button>
             ) : null}
           </div>
-        </form> : <p className="mb-4 text-sm text-muted">Manual device changes require administrator access.</p>}
+        </form> : !isAdmin ? <p className="mb-4 text-sm text-muted">Manual device changes require administrator access.</p> : null}
         <FeedbackMessage feedback={manualMessage} className="mb-4" onDismiss={() => setManualMessage(null)} />
         <div className="space-y-4">
           {manual.data?.map((device) => (
@@ -602,7 +604,7 @@ export function DevicesPage() {
               </div>
             </div>
           ))}
-          {manual.data?.length === 0 ? <p className="empty-state">No manual devices yet. Add one above when you want local Wake-on-LAN or a fixed LAN entry.</p> : null}
+          {manual.data?.length === 0 ? <p className="empty-state">No manual devices yet. Add a device for local Wake-on-LAN or a fixed LAN entry.</p> : null}
         </div>
       </Panel>
       {pendingDelete ? <ConfirmDialog title={`Delete ${pendingDelete.name}?`} description="This removes the manually managed device from PiHomeHub." confirmLabel="Delete device" onCancel={() => setPendingDelete(null)} onConfirm={() => { const target = pendingDelete; setPendingDelete(null); void deleteManual(target); }} /> : null}

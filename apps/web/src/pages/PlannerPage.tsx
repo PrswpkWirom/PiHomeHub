@@ -74,14 +74,13 @@ export function PlannerPage() {
     <div className="page-stack">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Planner</p>
-          <h1 className="page-title">Tasks for the hub</h1>
+          <h1 className="page-title">Planner</h1>
           <p className="page-copy">Keep small maintenance tasks beside the services and devices they support.</p>
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-      <Panel title="Add task" description="Create short, operational reminders with optional due labels.">
+      <div className="planner-layout">
+      <Panel title="Add task" description="A small reminder for your next free moment." className="planner-composer">
         <form className="space-y-4" onSubmit={createTask}>
           <Field label="Task title" value={title} onChange={(e) => { setTitle(e.target.value); setFeedback(null); }} required />
           <Field label="Due label" help="Optional short timing note, such as This weekend." value={dueLabel} onChange={(e) => { setDueLabel(e.target.value); setFeedback(null); }} />
@@ -92,7 +91,7 @@ export function PlannerPage() {
         </form>
         <FeedbackMessage feedback={feedback} className="mt-4" onDismiss={() => setFeedback(null)} />
       </Panel>
-      <Panel title="Task list" description="Completed tasks stay readable without competing with active work.">
+      <Panel title="Task list" description="Your household and server maintenance." className="planner-tasks">
         {loading ? (
           <div className="space-y-3">
             <div className="skeleton h-20" />
